@@ -29,17 +29,20 @@ export default function Home() {
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-8 px-6 py-16">
       <header>
         <h1 className="text-4xl font-bold tracking-tight">ClaimCrew</h1>
-        <p className="mt-2 text-lg text-zinc-600">
+        <p className="mt-2 text-lg opacity-75">
           Four agents. One receipt. Zero paperwork.
         </p>
       </header>
 
       <section className="grid gap-3 sm:grid-cols-2">
         {AGENTS.map((a, i) => (
-          <div key={a.name} className="rounded-lg border border-zinc-200 p-4">
+          <div
+            key={a.name}
+            className="rounded-lg border border-zinc-300 bg-white p-4 text-zinc-900"
+          >
             <div className="text-sm text-zinc-500">Agent {i + 1}</div>
             <div className="font-semibold">{a.name}</div>
-            <div className="text-sm text-zinc-600">{a.desc}</div>
+            <div className="text-sm text-zinc-700">{a.desc}</div>
           </div>
         ))}
       </section>
@@ -47,16 +50,16 @@ export default function Home() {
       <section className="flex flex-col items-start gap-3">
         <button
           onClick={checkBackend}
-          className="rounded-md bg-black px-4 py-2 text-white hover:bg-zinc-800"
+          className="rounded-md border border-zinc-400 bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
         >
           Check backend
         </button>
         {health && (
-          <pre className="rounded bg-zinc-100 p-3 text-sm">
+          <pre className="rounded border border-zinc-600 bg-zinc-900 p-3 text-sm text-zinc-100">
             {JSON.stringify(health, null, 2)}
           </pre>
         )}
-        {error && <p className="text-red-600">{error}</p>}
+        {error && <p className="font-medium text-red-500">{error}</p>}
       </section>
     </main>
   );
