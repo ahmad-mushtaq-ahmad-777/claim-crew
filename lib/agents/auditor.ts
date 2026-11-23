@@ -25,7 +25,6 @@ const INTERNET_KEYWORDS = [
   "fiber",
   "fibre",
   "data",
-  "mobile",
   "package",
   "dsl",
 ];
@@ -83,11 +82,11 @@ function runChecks(fields: ReaderResult, today: Date) {
 
   const expenseType: AuditCheck = {
     id: "expenseType",
-    label: "Expense is an internet/mobile bill",
+    label: "Expense is an internet bill",
     passed: looksLikeInternetBill(fields),
     detail: looksLikeInternetBill(fields)
       ? `"${fields.natureOfExpense.value}" from ${fields.serviceProvider.value} qualifies.`
-      : `"${fields.natureOfExpense.value ?? "unknown"}" is not an internet/mobile bill.`,
+      : `"${fields.natureOfExpense.value ?? "unknown"}" is not an internet bill.`,
   };
 
   const amountValue = fields.amount.value;

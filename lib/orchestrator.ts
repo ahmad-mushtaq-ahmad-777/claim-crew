@@ -1,9 +1,11 @@
 import { mockReaderFields, runReader } from "@/lib/agents/reader";
 import { runAuditor } from "@/lib/agents/auditor";
+import { runDispatcher } from "@/lib/agents/dispatcher";
 import { runFormFiller } from "@/lib/agents/form-filler";
 import type {
   AuditResult,
   ClaimResponse,
+  EmailDraft,
   FilledForm,
   PipelineEvent,
   ReaderResult,
@@ -165,7 +167,7 @@ export async function runClaimPipeline(
       type: "agent_start",
       agent: "formFiller",
       attempt: 1,
-      note: "Filling in the Internet/Mobile Expense Sheet",
+      note: "Filling in the Internet Expense Sheet",
     });
     if (isMockMode()) await sleep(900); // keep the live UI visible in mock mode
     form = await runFormFiller(fields);
@@ -183,11 +185,37 @@ export async function runClaimPipeline(
     });
   }
 
+  // --- Dispatcher: drafts the email to Accounts (nothing is sent here) ---
+  let draft: EmailDraft | undefined;
+  if (form) {
+    emit({
+      type: "agent_start",
+      agent: "dispatcher",
+      attempt: 1,
+      note: "Drafting the email to Accounts with both attachments",
+    });
+    if (isMockMode()) await sleep(900);
+    draft = await runDispatcher(fields, form, file.name || "receipt");
+    trace.push({
+      agent: "dispatcher",
+      title: "Dispatcher drafted the email to Accounts",
+      detail: draft.subject,
+    });
+    emit({
+      type: "agent_done",
+      agent: "dispatcher",
+      attempt: 1,
+      summary: "Drafted the email with the receipt and the filled form attached",
+      draft,
+    });
+  }
+
   const result: ClaimResponse = {
     mode: isMockMode() ? "mock" : "live",
     fields,
     audit,
     form,
+    draft,
     retries,
     trace,
   };

@@ -7,7 +7,7 @@ import {
 import { chatCompletion } from "@/lib/llm";
 
 const SYSTEM_PROMPT = `You are the Reader agent in an expense-claim system.
-You receive one internet/mobile bill receipt (image or PDF) and extract ONLY these fields:
+You receive one internet bill receipt (image or PDF) and extract ONLY these fields:
 - beneficiary: the customer / account holder name on the bill
 - serviceProvider: the company that issued the bill
 - date: the bill or payment date, formatted YYYY-MM-DD

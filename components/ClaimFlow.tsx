@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { draftToHtml } from "@/lib/email-html";
 import {
   RECEIPT_FIELDS,
   type AgentName,
   type AuditResult,
   type ClaimResponse,
+  type EmailDraft,
   type FilledForm,
   type PipelineEvent,
   type ReaderResult,
@@ -32,6 +34,7 @@ type AgentItem = {
   fields?: ReaderResult;
   audit?: AuditResult;
   form?: FilledForm;
+  draft?: EmailDraft;
 };
 type LoopItem = {
   kind: "loop";
@@ -45,11 +48,8 @@ const AGENT_META = {
   reader: { name: "Reader", icon: "R", role: "Vision · extracts the receipt" },
   auditor: { name: "Auditor", icon: "A", role: "Policy · verifies the claim" },
   formFiller: { name: "Form Filler", icon: "F", role: "Document · fills the expense sheet" },
+  dispatcher: { name: "Dispatcher", icon: "D", role: "Comms · drafts the email to Accounts" },
 } as const;
-
-const STANDBY = [
-  { name: "Dispatcher", icon: "D", role: "Drafts the email to Accounts" },
-];
 
 export default function ClaimFlow() {
   const [file, setFile] = useState<File | null>(null);
@@ -94,6 +94,7 @@ export default function ClaimFlow() {
                 fields: ev.agent === "reader" ? ev.fields : undefined,
                 audit: ev.agent === "auditor" ? ev.audit : undefined,
                 form: ev.agent === "formFiller" ? ev.form : undefined,
+                draft: ev.agent === "dispatcher" ? ev.draft : undefined,
               }
             : it,
         ),
@@ -306,26 +307,6 @@ export default function ClaimFlow() {
               </div>
             ))}
 
-            {/* Agents that come after approval */}
-            {result?.audit.verdict === "approved" && (
-              <>
-                {STANDBY.map((s) => (
-                  <div key={s.name} className="step-in">
-                    <div className="connector" />
-                    <div className="agent-card is-standby flex items-center gap-4 p-4">
-                      <Badge icon={s.icon} state="standby" />
-                      <div>
-                        <div className="font-semibold">{s.name}</div>
-                        <div className="text-sm text-slate-400">{s.role}</div>
-                      </div>
-                      <span className="ml-auto font-mono text-xs text-slate-400">
-                        NEXT UP
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </>
-            )}
           </div>
         </section>
       )}
@@ -352,8 +333,111 @@ export default function ClaimFlow() {
         </section>
       )}
 
+      {result?.draft && result.form && file && (
+        <SendPanel
+          key={result.draft.signature}
+          draft={result.draft}
+          form={result.form}
+          file={file}
+        />
+      )}
+
       {result && <Verdict result={result} />}
     </div>
+  );
+}
+
+const CC_RE = /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[^\s@,;<>"]{2,}$/;
+
+function SendPanel({
+  draft,
+  form,
+  file,
+}: {
+  draft: EmailDraft;
+  form: FilledForm;
+  file: File;
+}) {
+  const [cc, setCc] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const valid = CC_RE.test(cc.trim());
+
+  async function send() {
+    if (!valid || sending) return;
+    setSending(true);
+    setErr(null);
+    try {
+      const body = new FormData();
+      body.append("receipt", file);
+      body.append("cc", cc.trim());
+      body.append("subject", draft.subject);
+      body.append("body", draft.body);
+      body.append("pdfBase64", form.pdfBase64);
+      body.append("pdfFilename", form.filename);
+      body.append("signature", draft.signature);
+      const res = await fetch("/api/send", { method: "POST", body });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setErr(data?.error ?? "The email could not be sent.");
+      } else {
+        setSent(cc.trim());
+      }
+    } catch {
+      setErr("Lost the connection. Check your internet and try again.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  if (sent) {
+    return (
+      <section className="agent-card is-done step-in p-6">
+        <div className="font-mono text-xs tracking-widest text-emerald-300">EMAIL SENT</div>
+        <div className="mt-1 text-lg font-semibold">
+          Sent to Accounts, with {sent} in CC.
+        </div>
+        <div className="mt-1 text-sm text-slate-300">
+          Both attachments (original receipt and filled expense sheet) were included.
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="agent-card step-in p-6">
+      <div className="mb-4 flex items-center gap-3">
+        <span className="font-mono text-xs tracking-widest text-cyan-300">STEP 03</span>
+        <h2 className="text-xl font-semibold">Approve &amp; send</h2>
+      </div>
+      <label className="block text-sm text-slate-300" htmlFor="cc">
+        CC email <span className="text-red-300">*</span>
+      </label>
+      <input
+        id="cc"
+        type="email"
+        value={cc}
+        onChange={(e) => setCc(e.target.value)}
+        placeholder="manager@example.com"
+        disabled={sending}
+        className="mt-2 w-full rounded-lg border border-slate-600 bg-black/40 px-4 py-2 text-slate-100 outline-none focus:border-cyan-400"
+      />
+      {cc && !valid && (
+        <div className="mt-1 text-xs text-red-300">Enter one valid email address.</div>
+      )}
+      {err && <div className="mt-3 text-sm text-red-300">{err}</div>}
+      <button
+        onClick={send}
+        disabled={!valid || sending}
+        className="mt-4 rounded-lg bg-gradient-to-r from-emerald-400 to-cyan-400 px-6 py-3 font-semibold text-black transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        {sending ? "Sending…" : "✉ Approve & Send"}
+      </button>
+      <div className="mt-2 text-xs text-slate-500">
+        CC is required. Nothing is sent until you approve.
+      </div>
+    </section>
   );
 }
 
@@ -467,6 +551,7 @@ function AgentCard({ item }: { item: AgentItem }) {
       {item.status === "done" && item.fields && <FieldsTable fields={item.fields} />}
       {item.status === "done" && item.audit && <AuditChecks audit={item.audit} />}
       {item.status === "done" && item.form && <FormPreview form={item.form} />}
+      {item.status === "done" && item.draft && <DraftPreview draft={item.draft} />}
     </div>
   );
 }
@@ -608,6 +693,45 @@ function FormPreview({ form }: { form: FilledForm }) {
         title="Filled expense sheet"
         className="h-[34rem] w-full rounded-lg border border-slate-600 bg-white"
       />
+    </div>
+  );
+}
+
+function DraftPreview({ draft }: { draft: EmailDraft }) {
+  return (
+    <div className="mt-4 overflow-hidden rounded-xl border border-slate-700/70 bg-black/30">
+      <div className="grid gap-1 border-b border-slate-700/70 px-4 py-3 text-sm">
+        <div className="flex gap-3">
+          <span className="w-16 shrink-0 text-slate-500">To</span>
+          <span>{draft.toLabel}</span>
+        </div>
+        <div className="flex gap-3">
+          <span className="w-16 shrink-0 text-slate-500">Subject</span>
+          <span className="font-medium">{draft.subject}</span>
+        </div>
+        <div className="flex gap-3">
+          <span className="w-16 shrink-0 text-slate-500">Attached</span>
+          <span className="flex flex-wrap gap-2">
+            {draft.attachments.map((a) => (
+              <span
+                key={a.filename}
+                className="rounded-md border border-cyan-400/40 bg-cyan-400/10 px-2 py-0.5 text-xs text-cyan-100"
+                title={a.label}
+              >
+                📎 {a.label}: {a.filename}
+              </span>
+            ))}
+          </span>
+        </div>
+      </div>
+      <div
+        className="px-4 py-4 text-sm leading-relaxed text-slate-200"
+        // Built from escaped text by draftToHtml, same layout as the sent email.
+        dangerouslySetInnerHTML={{ __html: draftToHtml(draft.body, { inherit: true }) }}
+      />
+      <div className="border-t border-slate-700/70 px-4 py-2 font-mono text-xs text-slate-500">
+        DRAFT · nothing has been sent
+      </div>
     </div>
   );
 }

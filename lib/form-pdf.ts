@@ -1,7 +1,7 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import type { ReaderResult } from "./claim-types";
 
-// Recreates the company "Internet/Mobile Expense Sheet" (US Letter, 7-column table).
+// Recreates the company "Internet Expense Sheet" (US Letter, 7-column table).
 // Column proportions are taken from the original Word form.
 const COMPANY_LINE_1 = "EXAMPLE COMPANY";
 const COMPANY_LINE_2 = "INTERNATIONAL";
@@ -47,7 +47,7 @@ function fit(font: PDFFont, text: string, maxWidth: number, size: number, min = 
 
 export async function generateFormPdf(fields: ReaderResult): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
-  pdf.setTitle("Internet/Mobile Expense Sheet");
+  pdf.setTitle("Internet Expense Sheet");
   pdf.setCreator("ClaimCrew Form Filler");
   const page = pdf.addPage([PAGE_W, PAGE_H]);
   const font = await pdf.embedFont(StandardFonts.Helvetica);
@@ -94,7 +94,7 @@ export async function generateFormPdf(fields: ReaderResult): Promise<Uint8Array>
   top -= 18;
 
   // --- Title ---
-  textIn(page, "Internet/Mobile Expense Sheet", LEFT, TABLE_W, top, 26, { font: bold, size: 13 });
+  textIn(page, "Internet Expense Sheet", LEFT, TABLE_W, top, 26, { font: bold, size: 13 });
   top -= 26 + 8;
 
   // --- Name / Date ---

@@ -9,5 +9,5 @@ export const POLICY = {
   // Max times the Auditor may send the receipt back to the Reader.
   maxRetries: 2,
   // Expense types this form accepts.
-  allowedExpense: "internet/mobile bill",
+  allowedExpense: "internet bill",
 } as const;

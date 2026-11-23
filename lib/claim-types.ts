@@ -43,7 +43,18 @@ export type AuditResult = {
 
 // ---- Orchestration ----
 
-export type AgentName = "reader" | "auditor" | "formFiller";
+export type AgentName = "reader" | "auditor" | "formFiller" | "dispatcher";
+
+// The email the Dispatcher drafts for Accounts. Nothing is sent until the user approves.
+export type EmailDraft = {
+  // Display label only; the real address stays on the server.
+  toLabel: string;
+  subject: string;
+  body: string;
+  attachments: { label: string; filename: string }[];
+  // HMAC over subject, body and the PDF, so only this exact draft can be sent.
+  signature: string;
+};
 
 // The filled reimbursement form, produced by the Form Filler.
 export type FilledForm = {
@@ -63,6 +74,7 @@ export type ClaimResponse = {
   audit: AuditResult;
   // Present only when the claim was approved.
   form?: FilledForm;
+  draft?: EmailDraft;
   retries: number;
   trace: TraceStep[];
 };
@@ -90,6 +102,13 @@ export type PipelineEvent =
       attempt: number;
       summary: string;
       form: FilledForm;
+    }
+  | {
+      type: "agent_done";
+      agent: "dispatcher";
+      attempt: number;
+      summary: string;
+      draft: EmailDraft;
     }
   | { type: "loop_back"; attempt: number; fields: ReceiptFieldName[]; reason: string }
   | { type: "complete"; result: ClaimResponse }

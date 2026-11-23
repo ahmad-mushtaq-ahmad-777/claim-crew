@@ -18,7 +18,7 @@ export default function Home() {
       <ClaimFlow />
 
       <footer className="pb-6 pt-4 font-mono text-xs text-slate-500">
-        Demo uses made-up data only. Nothing is sent to anyone.
+        Demo uses made-up data only. Emails go only to a demo mailbox, and only after you approve.
       </footer>
     </main>
   );
