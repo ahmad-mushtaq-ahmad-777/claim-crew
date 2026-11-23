@@ -2,6 +2,7 @@ import {
   RECEIPT_FIELDS,
   type ExtractedField,
   type ReaderResult,
+  type ReceiptFieldName,
 } from "@/lib/claim-types";
 import { getLLM } from "@/lib/llm";
 
@@ -52,8 +53,27 @@ export function parseReaderOutput(text: string): ReaderResult {
   return result;
 }
 
-export async function runReader(file: File): Promise<ReaderResult> {
+export function mockReaderFields(): ReaderResult {
+  return {
+    beneficiary: { value: "Jane Doe", confidence: 0.95 },
+    serviceProvider: { value: "Example ISP", confidence: 0.97 },
+    date: { value: "2026-11-05", confidence: 0.93 },
+    month: { value: "November", confidence: 0.9 },
+    natureOfExpense: { value: "Internet bill", confidence: 0.96 },
+    amount: { value: 4500, confidence: 0.98 },
+  };
+}
+
+// focus: when the Auditor sends the receipt back, re-read these fields carefully.
+export async function runReader(
+  file: File,
+  focus: ReceiptFieldName[] = [],
+): Promise<ReaderResult> {
   const { client, model } = getLLM();
+  const userText =
+    focus.length > 0
+      ? `Extract the fields from this receipt. A reviewer found these fields unclear: ${focus.join(", ")}. Look at the receipt again very carefully for them. If they are truly not visible, return null with confidence 0.`
+      : "Extract the fields from this receipt.";
   const bytes = Buffer.from(await file.arrayBuffer());
   const dataUrl = `data:${file.type};base64,${bytes.toString("base64")}`;
 
@@ -66,7 +86,7 @@ export async function runReader(file: File): Promise<ReaderResult> {
       {
         role: "user",
         content: [
-          { type: "text", text: "Extract the fields from this receipt." },
+          { type: "text", text: userText },
           { type: "image_url", image_url: { url: dataUrl } },
         ],
       },

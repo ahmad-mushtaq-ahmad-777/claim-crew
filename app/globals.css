@@ -1,8 +1,14 @@
 @import "tailwindcss";
 
+/* ClaimCrew uses one deliberate dark "mission control" theme in every OS mode. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #04060c;
+  --foreground: #e6edf7;
+  --cyan: #22d3ee;
+  --violet: #a78bfa;
+  --green: #34d399;
+  --amber: #fbbf24;
+  --red: #f87171;
 }
 
 @theme inline {
@@ -12,15 +18,169 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
+  background-color: var(--background);
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(34, 211, 238, 0.12), transparent),
+    radial-gradient(ellipse 60% 40% at 90% 10%, rgba(167, 139, 250, 0.1), transparent),
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+  background-size: auto, auto, 36px 36px, 36px 36px;
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+/* ---- Agent card states ---- */
+.agent-card {
+  position: relative;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(10, 14, 24, 0.75);
+  backdrop-filter: blur(6px);
+  transition: border-color 0.3s, box-shadow 0.3s, opacity 0.3s;
+}
+
+.agent-card.is-working {
+  border-color: rgba(34, 211, 238, 0.7);
+  box-shadow:
+    0 0 0 1px rgba(34, 211, 238, 0.25),
+    0 0 28px rgba(34, 211, 238, 0.28),
+    inset 0 0 30px rgba(34, 211, 238, 0.06);
+  animation: card-pulse 1.8s ease-in-out infinite;
+}
+
+.agent-card.is-done {
+  border-color: rgba(52, 211, 153, 0.45);
+  box-shadow: 0 0 18px rgba(52, 211, 153, 0.12);
+}
+
+.agent-card.is-warn {
+  border-color: rgba(251, 191, 36, 0.55);
+  box-shadow: 0 0 18px rgba(251, 191, 36, 0.15);
+}
+
+.agent-card.is-bad {
+  border-color: rgba(248, 113, 113, 0.55);
+  box-shadow: 0 0 18px rgba(248, 113, 113, 0.15);
+}
+
+.agent-card.is-standby {
+  opacity: 0.45;
+  border-style: dashed;
+}
+
+@keyframes card-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.25), 0 0 22px rgba(34, 211, 238, 0.2), inset 0 0 30px rgba(34, 211, 238, 0.04); }
+  50% { box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.5), 0 0 40px rgba(34, 211, 238, 0.4), inset 0 0 40px rgba(34, 211, 238, 0.1); }
+}
+
+/* Moving scan bar shown while an agent is working */
+.scan-bar {
+  position: relative;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(34, 211, 238, 0.12);
+}
+.scan-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+  animation: scan 1.2s linear infinite;
+}
+@keyframes scan {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(260%); }
+}
+
+/* Orbiting ring on the active agent badge */
+.orbit {
+  position: absolute;
+  inset: -8px;
+  border-radius: 999px;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    rgba(34, 211, 238, 0.1) 120deg,
+    var(--cyan) 330deg,
+    #ffffff 360deg
+  );
+  /* hollow out the middle so only a thick rotating arc remains */
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+  filter: drop-shadow(0 0 6px var(--cyan));
+  animation: spin 0.8s linear infinite;
+}
+.orbit-glow {
+  position: absolute;
+  inset: -4px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(34, 211, 238, 0.35), transparent 70%);
+  animation: glow-breathe 1.4s ease-in-out infinite;
+}
+@keyframes glow-breathe {
+  0%, 100% { opacity: 0.35; transform: scale(0.95); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Cards slide in as each step appears */
+.step-in {
+  animation: step-in 0.45s ease-out both;
+}
+@keyframes step-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Vertical connector between cards */
+.connector {
+  width: 2px;
+  height: 28px;
+  margin-left: 27px;
+  background: linear-gradient(to bottom, rgba(34, 211, 238, 0.6), rgba(34, 211, 238, 0.1));
+}
+.connector.flow {
+  background: linear-gradient(to bottom, var(--cyan), var(--violet), var(--cyan));
+  background-size: 100% 200%;
+  animation: flow 1s linear infinite;
+}
+@keyframes flow {
+  from { background-position: 0 0; }
+  to { background-position: 0 200%; }
+}
+
+/* Loop-back banner */
+.loop-banner {
+  border-radius: 12px;
+  border: 1px dashed rgba(251, 191, 36, 0.6);
+  background: rgba(251, 191, 36, 0.07);
+  animation: step-in 0.45s ease-out both;
+}
+.loop-arrow {
+  display: inline-block;
+  animation: spin 1.6s linear infinite;
+}
+
+.blink {
+  animation: blink 1s steps(2, start) infinite;
+}
+@keyframes blink {
+  to { visibility: hidden; }
+}
+
+.neon-text {
+  background: linear-gradient(90deg, var(--cyan), var(--violet));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }

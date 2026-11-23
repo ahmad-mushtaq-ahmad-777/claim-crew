@@ -20,6 +20,71 @@ export type ExtractedField = {
 
 export type ReaderResult = Record<ReceiptFieldName, ExtractedField>;
 
+// ---- Auditor ----
+
+export type AuditCheck = {
+  id: "year" | "expenseType" | "amount" | "confidence";
+  label: string;
+  passed: boolean;
+  detail: string;
+};
+
+export type AuditVerdict = "approved" | "rejected" | "needs_reread";
+
+export type AuditResult = {
+  agent: "auditor";
+  verdict: AuditVerdict;
+  checks: AuditCheck[];
+  // Plain-language explanation shown to the user, especially for rejections.
+  reason: string;
+  // Fields the Auditor wants the Reader to re-read (when verdict is needs_reread).
+  rereadFields: ReceiptFieldName[];
+};
+
+// ---- Orchestration ----
+
+export type TraceStep = {
+  agent: "reader" | "auditor";
+  title: string;
+  detail: string;
+};
+
+export type ClaimResponse = {
+  mode: "mock" | "live";
+  fields: ReaderResult;
+  audit: AuditResult;
+  retries: number;
+  trace: TraceStep[];
+};
+
+// Live events streamed from /api/claim (one JSON object per line).
+export type PipelineEvent =
+  | { type: "agent_start"; agent: "reader" | "auditor"; attempt: number; note: string }
+  | {
+      type: "agent_done";
+      agent: "reader";
+      attempt: number;
+      summary: string;
+      fields: ReaderResult;
+    }
+  | {
+      type: "agent_done";
+      agent: "auditor";
+      attempt: number;
+      summary: string;
+      audit: AuditResult;
+    }
+  | { type: "loop_back"; attempt: number; fields: ReceiptFieldName[]; reason: string }
+  | { type: "complete"; result: ClaimResponse }
+  | {
+      type: "error";
+      message: string;
+      // What the user can do about it
+      hint: string;
+      // Which agent was working when it failed
+      agent?: "reader" | "auditor";
+    };
+
 export type ReaderResponse = {
   agent: "reader";
   mode: "mock" | "live";

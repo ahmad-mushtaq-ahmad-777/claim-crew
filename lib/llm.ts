@@ -15,5 +15,9 @@ export function getLLM() {
       "LLM_BASE_URL, LLM_API_KEY and LLM_MODEL must be set when MOCK_LLM=false",
     );
   }
-  return { client: new OpenAI({ baseURL, apiKey }), model };
+  // Fail fast instead of hanging for minutes if the provider stalls.
+  return {
+    client: new OpenAI({ baseURL, apiKey, timeout: 40_000, maxRetries: 1 }),
+    model,
+  };
 }
