@@ -253,6 +253,8 @@ export default function ClaimFlow() {
   }
 
   const started = items.length > 0 || running;
+  const has = (agent: AgentName) =>
+    items.some((x) => x.kind === "agent" && x.agent === agent);
 
   return (
     <div className="flex flex-col gap-10">
@@ -351,10 +353,13 @@ export default function ClaimFlow() {
                 ) : (
                   <AgentCard
                     item={it}
+                    startOpen={it.agent === "dispatcher"}
                     collapsible={
-                      (it.agent === "reader" || it.agent === "auditor") &&
-                      it.audit?.verdict !== "needs_reread" &&
-                      items.some((x) => x.kind === "agent" && x.agent === "formFiller")
+                      it.agent === "dispatcher" ||
+                      (it.agent === "formFiller" && has("dispatcher")) ||
+                      ((it.agent === "reader" || it.agent === "auditor") &&
+                        it.audit?.verdict !== "needs_reread" &&
+                        has("formFiller"))
                     }
                   />
                 )}
@@ -612,11 +617,13 @@ function Badge({
 function AgentCard({
   item,
   collapsible,
+  startOpen = false,
 }: {
   item: AgentItem;
   collapsible: boolean;
+  startOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(startOpen);
   const collapsed = collapsible && item.status === "done" && !open;
   const meta = AGENT_META[item.agent];
   const verdict = item.audit?.verdict;
@@ -711,8 +718,12 @@ function AgentCard({
       {item.status === "done" && !collapsed && item.audit && (
         <AuditChecks audit={item.audit} />
       )}
-      {item.status === "done" && item.form && <FormPreview form={item.form} />}
-      {item.status === "done" && item.draft && <DraftPreview draft={item.draft} />}
+      {item.status === "done" && !collapsed && item.form && (
+        <FormPreview form={item.form} />
+      )}
+      {item.status === "done" && !collapsed && item.draft && (
+        <DraftPreview draft={item.draft} />
+      )}
     </div>
   );
 }
