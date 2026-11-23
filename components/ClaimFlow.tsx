@@ -92,22 +92,28 @@ export default function ClaimFlow() {
     };
   }, []);
 
+  // The newest thing the user should see: error box, send panel, rejection box, or last card.
+  function liveTarget(): Element | null | undefined {
+    return (
+      document.getElementById("claim-error") ??
+      document.getElementById("send-panel") ??
+      document.getElementById("verdict") ??
+      timelineRef.current?.lastElementChild
+    );
+  }
+
   function scrollToLive() {
-    const target = result?.draft
-      ? document.getElementById("send-panel")
-      : timelineRef.current?.lastElementChild;
-    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+    liveTarget()?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   const itemCount = items.length;
   const hasDraft = !!result?.draft;
+  const hasResult = !!result;
+  const hasError = !!error;
   useEffect(() => {
     if (pausedRef.current || itemCount === 0) return;
-    const target = hasDraft
-      ? document.getElementById("send-panel")
-      : timelineRef.current?.lastElementChild;
-    target?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [itemCount, hasDraft]);
+    liveTarget()?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [itemCount, hasDraft, hasResult, hasError]);
 
   function handleEvent(ev: PipelineEvent) {
     if (ev.type === "agent_start") {
@@ -371,7 +377,7 @@ export default function ClaimFlow() {
       )}
 
       {error && (
-        <section className="agent-card is-bad step-in p-6">
+        <section id="claim-error" className="agent-card is-bad step-in scroll-mt-28 p-6">
           <div className="flex items-start gap-4">
             <span className="text-3xl text-red-300">⚠</span>
             <div className="flex-1">
@@ -403,7 +409,11 @@ export default function ClaimFlow() {
         </div>
       )}
 
-      {result && <Verdict result={result} />}
+      {result && (
+        <div id="verdict" className="scroll-mt-28">
+          <Verdict result={result} />
+        </div>
+      )}
 
       {paused && running && (
         <button
