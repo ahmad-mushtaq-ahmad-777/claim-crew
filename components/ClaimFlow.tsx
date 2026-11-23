@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { draftToHtml } from "@/lib/email-html";
 import {
   RECEIPT_FIELDS,
@@ -70,6 +70,45 @@ export default function ClaimFlow() {
     };
   }, [previewUrl]);
 
+  // Auto-scroll: follow the newest agent card, unless the user scrolls away.
+  const timelineRef = useRef<HTMLDivElement>(null);
+  const pausedRef = useRef(false);
+  const [paused, setPaused] = useState(false);
+
+  useEffect(() => {
+    const pause = () => {
+      if (pausedRef.current) return;
+      pausedRef.current = true;
+      setPaused(true);
+    };
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0) pause();
+    };
+    window.addEventListener("wheel", onWheel, { passive: true });
+    window.addEventListener("touchmove", pause, { passive: true });
+    return () => {
+      window.removeEventListener("wheel", onWheel);
+      window.removeEventListener("touchmove", pause);
+    };
+  }, []);
+
+  function scrollToLive() {
+    const target = result?.draft
+      ? document.getElementById("send-panel")
+      : timelineRef.current?.lastElementChild;
+    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  const itemCount = items.length;
+  const hasDraft = !!result?.draft;
+  useEffect(() => {
+    if (pausedRef.current || itemCount === 0) return;
+    const target = hasDraft
+      ? document.getElementById("send-panel")
+      : timelineRef.current?.lastElementChild;
+    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [itemCount, hasDraft]);
+
   function handleEvent(ev: PipelineEvent) {
     if (ev.type === "agent_start") {
       setItems((prev) => [
@@ -134,6 +173,8 @@ export default function ClaimFlow() {
     setItems([]);
     setResult(null);
     setError(null);
+    pausedRef.current = false;
+    setPaused(false);
 
     // Watchdog: if nothing arrives for 90s, stop waiting and tell the user.
     const controller = new AbortController();
@@ -276,6 +317,8 @@ export default function ClaimFlow() {
         </div>
       </section>
 
+      {started && <Tracker items={items} />}
+
       {/* ---- Agent timeline ---- */}
       {started && (
         <section>
@@ -291,9 +334,13 @@ export default function ClaimFlow() {
             )}
           </div>
 
-          <div className="flex flex-col">
+          <div className="flex flex-col" ref={timelineRef}>
             {items.map((it, i) => (
-              <div key={it.id} className="step-in">
+              <div
+                key={it.id}
+                data-agent={it.kind === "agent" ? it.agent : undefined}
+                className="step-in scroll-mt-28"
+              >
                 {i > 0 && (
                   <div
                     className={`connector ${it.kind === "agent" && it.status === "working" ? "flow" : ""}`}
@@ -302,7 +349,14 @@ export default function ClaimFlow() {
                 {it.kind === "loop" ? (
                   <LoopBanner item={it} />
                 ) : (
-                  <AgentCard item={it} />
+                  <AgentCard
+                    item={it}
+                    collapsible={
+                      (it.agent === "reader" || it.agent === "auditor") &&
+                      it.audit?.verdict !== "needs_reread" &&
+                      items.some((x) => x.kind === "agent" && x.agent === "formFiller")
+                    }
+                  />
                 )}
               </div>
             ))}
@@ -334,15 +388,98 @@ export default function ClaimFlow() {
       )}
 
       {result?.draft && result.form && file && (
-        <SendPanel
-          key={result.draft.signature}
-          draft={result.draft}
-          form={result.form}
-          file={file}
-        />
+        <div id="send-panel" className="scroll-mt-28">
+          <SendPanel
+            key={result.draft.signature}
+            draft={result.draft}
+            form={result.form}
+            file={file}
+          />
+        </div>
       )}
 
       {result && <Verdict result={result} />}
+
+      {paused && running && (
+        <button
+          onClick={() => {
+            pausedRef.current = false;
+            setPaused(false);
+            scrollToLive();
+          }}
+          className="fixed bottom-6 left-1/2 z-30 -translate-x-1/2 rounded-full border border-cyan-400/60 bg-[#080c16]/95 px-5 py-2 font-mono text-xs text-cyan-200 shadow-[0_0_24px_rgba(34,211,238,0.3)] transition hover:bg-cyan-400/10"
+        >
+          ↓ Jump to live
+        </button>
+      )}
+    </div>
+  );
+}
+
+const TRACK = ["reader", "auditor", "formFiller", "dispatcher"] as const;
+type TrackState = "standby" | "working" | "done" | "warn" | "bad";
+
+function trackState(items: Item[], agent: AgentName): TrackState {
+  const mine = items.filter(
+    (x): x is AgentItem => x.kind === "agent" && x.agent === agent,
+  );
+  const last = mine[mine.length - 1];
+  if (!last) return "standby";
+  if (last.status === "failed") return "bad";
+  if (last.status === "working") return "working";
+  if (last.audit?.verdict === "needs_reread") return "warn";
+  if (last.audit?.verdict === "rejected") return "bad";
+  return "done";
+}
+
+function Tracker({ items }: { items: Item[] }) {
+  const colors: Record<TrackState, string> = {
+    standby: "border-slate-600 text-slate-500",
+    working: "border-cyan-400 text-cyan-300 shadow-[0_0_14px_rgba(34,211,238,0.6)]",
+    done: "border-emerald-400 bg-emerald-400/10 text-emerald-300",
+    warn: "border-amber-400 text-amber-300",
+    bad: "border-red-400 text-red-300",
+  };
+  return (
+    <div className="sticky top-2 z-20 rounded-2xl border border-slate-700/70 bg-[#080c16]/90 px-4 py-3 backdrop-blur">
+      <div className="flex items-center">
+        {TRACK.map((agent, i) => {
+          const st = trackState(items, agent);
+          const next = i < TRACK.length - 1;
+          return (
+            <div key={agent} className={`flex items-center ${next ? "flex-1" : ""}`}>
+              <button
+                onClick={() => {
+                  const els = document.querySelectorAll(`[data-agent="${agent}"]`);
+                  els[els.length - 1]?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+                disabled={st === "standby"}
+                className="flex items-center gap-2 disabled:cursor-default"
+                title={AGENT_META[agent].role}
+              >
+                <span
+                  className={`flex h-8 w-8 items-center justify-center rounded-full border-2 font-mono text-sm font-bold transition-all ${colors[st]} ${st === "working" ? "animate-pulse" : ""}`}
+                >
+                  {st === "done" ? "✓" : st === "bad" ? "✕" : AGENT_META[agent].icon}
+                </span>
+                <span
+                  className={`hidden text-sm sm:inline ${st === "standby" ? "text-slate-500" : "text-slate-200"}`}
+                >
+                  {AGENT_META[agent].name}
+                </span>
+              </button>
+              {next && (
+                <div className="mx-3 h-0.5 flex-1 overflow-hidden rounded bg-slate-700">
+                  <div
+                    className="h-full bg-emerald-400 transition-all duration-700"
+                    style={{ width: st === "done" ? "100%" : "0%" }}
+                  />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -472,7 +609,15 @@ function Badge({
   );
 }
 
-function AgentCard({ item }: { item: AgentItem }) {
+function AgentCard({
+  item,
+  collapsible,
+}: {
+  item: AgentItem;
+  collapsible: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const collapsed = collapsible && item.status === "done" && !open;
   const meta = AGENT_META[item.agent];
   const verdict = item.audit?.verdict;
   const state =
@@ -530,7 +675,19 @@ function AgentCard({ item }: { item: AgentItem }) {
                   : "REJECTED"
                 : "DONE"}
         </span>
+        {collapsible && item.status === "done" && (
+          <button
+            onClick={() => setOpen((o) => !o)}
+            className="shrink-0 rounded-md border border-slate-600 px-2 py-1 font-mono text-xs text-slate-300 transition hover:border-cyan-400 hover:text-cyan-200"
+          >
+            {open ? "Hide details" : "Show details"}
+          </button>
+        )}
       </div>
+
+      {collapsed && item.summary && (
+        <div className="mt-3 text-sm text-slate-400">{item.summary}</div>
+      )}
 
       {item.status === "working" && (
         <div className="mt-4">
@@ -548,8 +705,12 @@ function AgentCard({ item }: { item: AgentItem }) {
         </div>
       )}
 
-      {item.status === "done" && item.fields && <FieldsTable fields={item.fields} />}
-      {item.status === "done" && item.audit && <AuditChecks audit={item.audit} />}
+      {item.status === "done" && !collapsed && item.fields && (
+        <FieldsTable fields={item.fields} />
+      )}
+      {item.status === "done" && !collapsed && item.audit && (
+        <AuditChecks audit={item.audit} />
+      )}
       {item.status === "done" && item.form && <FormPreview form={item.form} />}
       {item.status === "done" && item.draft && <DraftPreview draft={item.draft} />}
     </div>
