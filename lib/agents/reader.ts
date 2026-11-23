@@ -4,7 +4,7 @@ import {
   type ReaderResult,
   type ReceiptFieldName,
 } from "@/lib/claim-types";
-import { getLLM } from "@/lib/llm";
+import { chatCompletion } from "@/lib/llm";
 
 const SYSTEM_PROMPT = `You are the Reader agent in an expense-claim system.
 You receive one internet/mobile bill receipt (image or PDF) and extract ONLY these fields:
@@ -69,7 +69,6 @@ export async function runReader(
   file: File,
   focus: ReceiptFieldName[] = [],
 ): Promise<ReaderResult> {
-  const { client, model } = getLLM();
   const userText =
     focus.length > 0
       ? `Extract the fields from this receipt. A reviewer found these fields unclear: ${focus.join(", ")}. Look at the receipt again very carefully for them. If they are truly not visible, return null with confidence 0.`
@@ -77,8 +76,7 @@ export async function runReader(
   const bytes = Buffer.from(await file.arrayBuffer());
   const dataUrl = `data:${file.type};base64,${bytes.toString("base64")}`;
 
-  const completion = await client.chat.completions.create({
-    model,
+  const completion = await chatCompletion({
     temperature: 0,
     response_format: { type: "json_object" },
     messages: [

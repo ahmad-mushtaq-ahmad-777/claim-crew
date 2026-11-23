@@ -5,7 +5,7 @@ import type {
   ReaderResult,
   ReceiptFieldName,
 } from "@/lib/claim-types";
-import { getLLM, isMockMode } from "@/lib/llm";
+import { chatCompletion, isMockMode } from "@/lib/llm";
 import { POLICY } from "@/lib/policy";
 
 // Fields that must be read reliably before a claim can be judged.
@@ -131,10 +131,8 @@ async function writeReason(
   const fallback = templatedReason(verdict, checks);
   if (isMockMode()) return fallback;
   try {
-    const { client, model } = getLLM();
-    const completion = await client.chat.completions.create(
+    const completion = await chatCompletion(
       {
-        model,
         temperature: 0.2,
         messages: [
           {
@@ -146,7 +144,7 @@ async function writeReason(
         ],
       },
       // The reason is a nice-to-have, so give up quickly and use the template.
-      { timeout: 15_000, maxRetries: 0 },
+      { timeout: 15_000, maxModels: 1 },
     );
     return completion.choices[0]?.message?.content?.trim() || fallback;
   } catch (e) {

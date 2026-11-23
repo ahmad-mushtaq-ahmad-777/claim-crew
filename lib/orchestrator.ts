@@ -1,8 +1,10 @@
 import { mockReaderFields, runReader } from "@/lib/agents/reader";
 import { runAuditor } from "@/lib/agents/auditor";
+import { runFormFiller } from "@/lib/agents/form-filler";
 import type {
   AuditResult,
   ClaimResponse,
+  FilledForm,
   PipelineEvent,
   ReaderResult,
   ReceiptFieldName,
@@ -156,10 +158,36 @@ export async function runClaimPipeline(
     audit = { ...audit, verdict: "rejected" };
   }
 
+  // --- Form Filler: only for approved claims ---
+  let form: FilledForm | undefined;
+  if (audit.verdict === "approved") {
+    emit({
+      type: "agent_start",
+      agent: "formFiller",
+      attempt: 1,
+      note: "Filling in the Internet/Mobile Expense Sheet",
+    });
+    if (isMockMode()) await sleep(900); // keep the live UI visible in mock mode
+    form = await runFormFiller(fields);
+    trace.push({
+      agent: "formFiller",
+      title: "Form Filler completed the expense sheet",
+      detail: form.filename,
+    });
+    emit({
+      type: "agent_done",
+      agent: "formFiller",
+      attempt: 1,
+      summary: `Filled the expense sheet (${form.filename})`,
+      form,
+    });
+  }
+
   const result: ClaimResponse = {
     mode: isMockMode() ? "mock" : "live",
     fields,
     audit,
+    form,
     retries,
     trace,
   };

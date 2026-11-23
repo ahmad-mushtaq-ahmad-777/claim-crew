@@ -43,8 +43,16 @@ export type AuditResult = {
 
 // ---- Orchestration ----
 
+export type AgentName = "reader" | "auditor" | "formFiller";
+
+// The filled reimbursement form, produced by the Form Filler.
+export type FilledForm = {
+  filename: string;
+  pdfBase64: string;
+};
+
 export type TraceStep = {
-  agent: "reader" | "auditor";
+  agent: AgentName;
   title: string;
   detail: string;
 };
@@ -53,13 +61,15 @@ export type ClaimResponse = {
   mode: "mock" | "live";
   fields: ReaderResult;
   audit: AuditResult;
+  // Present only when the claim was approved.
+  form?: FilledForm;
   retries: number;
   trace: TraceStep[];
 };
 
 // Live events streamed from /api/claim (one JSON object per line).
 export type PipelineEvent =
-  | { type: "agent_start"; agent: "reader" | "auditor"; attempt: number; note: string }
+  | { type: "agent_start"; agent: AgentName; attempt: number; note: string }
   | {
       type: "agent_done";
       agent: "reader";
@@ -74,6 +84,13 @@ export type PipelineEvent =
       summary: string;
       audit: AuditResult;
     }
+  | {
+      type: "agent_done";
+      agent: "formFiller";
+      attempt: number;
+      summary: string;
+      form: FilledForm;
+    }
   | { type: "loop_back"; attempt: number; fields: ReceiptFieldName[]; reason: string }
   | { type: "complete"; result: ClaimResponse }
   | {
@@ -82,7 +99,7 @@ export type PipelineEvent =
       // What the user can do about it
       hint: string;
       // Which agent was working when it failed
-      agent?: "reader" | "auditor";
+      agent?: AgentName;
     };
 
 export type ReaderResponse = {

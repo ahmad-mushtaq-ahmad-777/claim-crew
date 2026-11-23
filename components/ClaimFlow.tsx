@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   RECEIPT_FIELDS,
+  type AgentName,
   type AuditResult,
   type ClaimResponse,
+  type FilledForm,
   type PipelineEvent,
   type ReaderResult,
   type ReceiptFieldName,
@@ -22,13 +24,14 @@ const FIELD_LABELS: Record<ReceiptFieldName, string> = {
 type AgentItem = {
   kind: "agent";
   id: string;
-  agent: "reader" | "auditor";
+  agent: AgentName;
   attempt: number;
   status: "working" | "done" | "failed";
   note: string;
   summary?: string;
   fields?: ReaderResult;
   audit?: AuditResult;
+  form?: FilledForm;
 };
 type LoopItem = {
   kind: "loop";
@@ -41,10 +44,10 @@ type Item = AgentItem | LoopItem;
 const AGENT_META = {
   reader: { name: "Reader", icon: "R", role: "Vision · extracts the receipt" },
   auditor: { name: "Auditor", icon: "A", role: "Policy · verifies the claim" },
+  formFiller: { name: "Form Filler", icon: "F", role: "Document · fills the expense sheet" },
 } as const;
 
 const STANDBY = [
-  { name: "Form Filler", icon: "F", role: "Completes the reimbursement form" },
   { name: "Dispatcher", icon: "D", role: "Drafts the email to Accounts" },
 ];
 
@@ -90,6 +93,7 @@ export default function ClaimFlow() {
                 summary: ev.summary,
                 fields: ev.agent === "reader" ? ev.fields : undefined,
                 audit: ev.agent === "auditor" ? ev.audit : undefined,
+                form: ev.agent === "formFiller" ? ev.form : undefined,
               }
             : it,
         ),
@@ -462,6 +466,7 @@ function AgentCard({ item }: { item: AgentItem }) {
 
       {item.status === "done" && item.fields && <FieldsTable fields={item.fields} />}
       {item.status === "done" && item.audit && <AuditChecks audit={item.audit} />}
+      {item.status === "done" && item.form && <FormPreview form={item.form} />}
     </div>
   );
 }
@@ -580,6 +585,29 @@ function AuditChecks({ audit }: { audit: AuditResult }) {
         ))}
       </ul>
       <p className="mt-3 text-sm text-slate-300">{audit.reason}</p>
+    </div>
+  );
+}
+
+function FormPreview({ form }: { form: FilledForm }) {
+  const href = `data:application/pdf;base64,${form.pdfBase64}`;
+  return (
+    <div className="mt-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="font-mono text-xs text-slate-400">{form.filename}</div>
+        <a
+          href={href}
+          download={form.filename}
+          className="rounded-lg border border-emerald-400/60 bg-emerald-400/10 px-4 py-2 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-400/20"
+        >
+          ⬇ Download PDF
+        </a>
+      </div>
+      <iframe
+        src={`${href}#toolbar=0&navpanes=0`}
+        title="Filled expense sheet"
+        className="h-[34rem] w-full rounded-lg border border-slate-600 bg-white"
+      />
     </div>
   );
 }

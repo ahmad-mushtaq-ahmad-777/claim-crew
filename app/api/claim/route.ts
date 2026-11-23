@@ -1,4 +1,4 @@
-import type { PipelineEvent } from "@/lib/claim-types";
+import type { AgentName, PipelineEvent } from "@/lib/claim-types";
 import { describeError } from "@/lib/errors";
 import { runClaimPipeline } from "@/lib/orchestrator";
 
@@ -52,7 +52,7 @@ export async function POST(request: Request) {
         }
       };
       // Remember which agent was working, so a failure can point at it.
-      let working: "reader" | "auditor" | undefined;
+      let working: AgentName | undefined;
       const track = (event: PipelineEvent) => {
         if (event.type === "agent_start") working = event.agent;
         if (event.type === "agent_done") working = undefined;
