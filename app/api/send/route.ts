@@ -1,6 +1,5 @@
 import { verifyDraft } from "@/lib/draft-signing";
 import { draftToHtml } from "@/lib/email-html";
-import { describeError } from "@/lib/errors";
 import { accountsAddress, sendMail } from "@/lib/mailer";
 
 export const maxDuration = 60;
@@ -18,8 +17,8 @@ const ALLOWED_TYPES = [
 const EMAIL_RE = /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[^\s@,;<>"]{2,}$/;
 
 // Best-effort abuse limits (per server instance): per IP per hour, and a daily total.
-const PER_IP_LIMIT = 3;
-const DAILY_LIMIT = 40;
+const PER_IP_LIMIT = 100;
+const DAILY_LIMIT = 250;
 const hits = new Map<string, number[]>();
 let day = { key: "", count: 0 };
 
@@ -34,6 +33,13 @@ function rateLimited(ip: string): string | null {
   hits.set(ip, recent);
   day.count += 1;
   return null;
+}
+
+// A failed send (e.g. Gmail timeout) must not use up the user's allowance.
+function refund(ip: string) {
+  const list = hits.get(ip);
+  if (list?.length) list.pop();
+  if (day.count > 0) day.count -= 1;
 }
 
 function safeName(name: string, fallback: string): string {
@@ -101,7 +107,19 @@ export async function POST(request: Request) {
     return Response.json({ ok: true, messageId: info.messageId, cc });
   } catch (e) {
     console.error("Send failed", e);
-    const d = describeError(e);
+    refund(ip);
+    const text = e instanceof Error ? e.message : "";
+    const code = (e as { code?: string })?.code ?? "";
+    const timedOut = code === "ETIMEDOUT" || code === "ESOCKET" || /timeout/i.test(text);
+    const d = timedOut
+      ? {
+          message: "We couldn't confirm that the email was delivered.",
+          hint: "The mail server was slow to reply, but the email may still have gone through. Check your CC inbox before trying again.",
+        }
+      : {
+          message: "The email could not be sent.",
+          hint: "Please try again in a moment. If it keeps failing, tell the app owner.",
+        };
     return Response.json({ error: d.message, hint: d.hint }, { status: 502 });
   }
 }

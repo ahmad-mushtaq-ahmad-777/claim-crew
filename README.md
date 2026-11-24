@@ -2,6 +2,8 @@
 
 ClaimCrew is a multi-agent receipt-to-reimbursement demo built for the SSI Agent-A-Thon. It turns an internet bill or health club receipt into a ready-to-send reimbursement claim: the app classifies the receipt, extracts the required fields, audits the claim against policy, fills the company form, and drafts the email to Accounts for final approval.
 
+Live demo: https://claim-crew.vercel.app/
+
 The demo uses made-up sample data only. Emails are sent only after the user reviews the draft and clicks Approve & Send.
 
 ## 5-Agent Flow
@@ -12,10 +14,20 @@ The demo uses made-up sample data only. Emails are sent only after the user revi
 4. **Form Filler** generates the completed reimbursement PDF for the detected claim type.
 5. **Dispatcher** drafts the Accounts email and signs the draft so only approved drafts can be sent.
 
-## Supported Claims
+## Policy and Retry Loop
 
-- **Internet bills**: reimburses up to the internet policy cap.
-- **Health club memberships**: calculates 60% of monthly dues, shows the full dues and reimbursable amount on the form, and flags over-cap claims for Accounts.
+| Claim type | Reimbursement | Monthly cap |
+| --- | --- | --- |
+| Internet bill | 100% of the bill | 2000 |
+| Health club | 60% of monthly dues (rounded to 2 decimals) | 4000 on the 60% share |
+
+- Every extracted field is required, and the receipt must be from the current year. Unrecognised documents are rejected by the Classifier.
+- If a field is missing or low-confidence, the Auditor sends the claim back to the Reader, up to 2 retries. Image retries read a contrast-enhanced copy. After that the claim is rejected.
+- Over-cap health club claims are still approved. The Auditor adds a note and Accounts applies the cap.
+
+## Try It
+
+Sample receipts (all made-up) are on the landing page, covering a clean claim, retry then reject, retry then recover, and an immediate reject. Receipts can be dragged in (JPG, PNG, WebP, HEIC or PDF, up to 5 MB), and a running claim can be stopped.
 
 ## Stack
 
@@ -31,18 +43,16 @@ The demo uses made-up sample data only. Emails are sent only after the user revi
 
 Create `.env.local` for local development and set the same values in Vercel for deployment. Do not commit secrets.
 
-```bash
-LLM_BASE_URL=
-LLM_API_KEY=
-LLM_MODEL=
-LLM_FALLBACK_MODELS=
-MOCK_LLM=false
-
-GMAIL_USER=
-GMAIL_APP_PASSWORD=
-ACCOUNTS_EMAIL=
-DISPATCH_SIGNING_SECRET=
-```
+| Variable | Purpose |
+| --- | --- |
+| `LLM_BASE_URL` | OpenAI-compatible endpoint |
+| `LLM_API_KEY` | API key for that endpoint |
+| `LLM_MODEL` | Primary model (needs vision) |
+| `LLM_FALLBACK_MODELS` | Comma-separated models tried if the primary fails |
+| `MOCK_LLM` | `true` runs the pipeline with canned output and no LLM calls |
+| `GMAIL_USER` | Gmail address used to send |
+| `GMAIL_APP_PASSWORD` | Gmail app password. Also used as the draft-signing key |
+| `ACCOUNTS_EMAIL` | Demo mailbox that receives claims |
 
 ## Run Locally
 
@@ -66,7 +76,7 @@ Open [http://localhost:3000](http://localhost:3000).
 npm run dev
 npm run build
 npx tsc --noEmit
-npx eslint app lib components
+npm run lint
 ```
 
 ## Notes
@@ -74,4 +84,5 @@ npx eslint app lib components
 - Sample receipts live in `public/samples` and use made-up data.
 - The app requires the user to enter a designation before starting a claim.
 - The CC email is required at the approval step so the user receives a copy of the exact email sent to Accounts.
+- Sending is limited (best-effort, in memory per server instance) to 100 emails per IP per hour and 250 per day.
 - Real API keys and Gmail app passwords must stay in `.env.local` or Vercel environment variables.
