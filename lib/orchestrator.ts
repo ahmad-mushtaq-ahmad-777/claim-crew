@@ -1,5 +1,5 @@
 import { runClassifier } from "@/lib/agents/classifier";
-import { runReader } from "@/lib/agents/reader";
+import { canEnhance, runReader } from "@/lib/agents/reader";
 import { CLAIM_CONFIGS, type ClaimConfig } from "@/lib/claim-configs";
 import { runAuditor } from "@/lib/agents/auditor";
 import { runDispatcher } from "@/lib/agents/dispatcher";
@@ -183,7 +183,7 @@ export async function runClaimPipeline(
       type: "agent_start",
       agent: "reader",
       attempt: retries + 1,
-      note: `Re-reading: ${focus.join(", ")}`,
+      note: `Re-reading ${focus.join(", ")}${canEnhance(file.type) ? " on a contrast-enhanced copy" : ""}`,
     });
     const reread = await readReceipt(file, config, focus);
     fields = mergeRereads(fields, reread, focus);

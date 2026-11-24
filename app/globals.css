@@ -20,6 +20,8 @@
 
 html {
   color-scheme: dark;
+  /* Keeps the layout width steady when the scrollbar appears or disappears. */
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -39,8 +41,8 @@ body {
   position: relative;
   border-radius: 14px;
   border: 1px solid rgba(148, 163, 184, 0.18);
-  background: rgba(10, 14, 24, 0.75);
-  backdrop-filter: blur(6px);
+  /* No backdrop-filter: it made the page flicker when a card holds an iframe or image. */
+  background: rgba(10, 14, 24, 0.92);
   transition: border-color 0.3s, box-shadow 0.3s, opacity 0.3s;
 }
 

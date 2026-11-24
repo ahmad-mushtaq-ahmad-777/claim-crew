@@ -18,6 +18,62 @@ import {
 
 const labelOf = (key: string) => FIELD_LABELS[key] ?? key;
 
+// Made-up receipts in public/samples: a happy path, retry loops, and a direct reject.
+type Sample = {
+  file: string;
+  kind: string;
+  title: string;
+  tag: string;
+  tone: "happy" | "loop" | "reject";
+};
+const SAMPLES: Sample[] = [
+  {
+    file: "stormfiber-payment-receipt.pdf",
+    kind: "Internet bill",
+    title: "StormFiber payment receipt",
+    tag: "Happy path",
+    tone: "happy",
+  },
+  {
+    file: "stormfiber-missing-holder.pdf",
+    kind: "Internet bill",
+    title: "Account holder missing",
+    tag: "Retry loop, then rejected",
+    tone: "loop",
+  },
+  {
+    file: "iron-peak-gym-receipt.pdf",
+    kind: "Health club",
+    title: "Iron Peak Fitness Club",
+    tag: "Happy path",
+    tone: "happy",
+  },
+  {
+    file: "iron-peak-gym-faded-name.jpg",
+    kind: "Health club",
+    title: "Faded member name",
+    tag: "Retry loop, then recovers",
+    tone: "loop",
+  },
+  {
+    file: "iron-peak-gym-last-year.pdf",
+    kind: "Health club",
+    title: "Last year's receipt",
+    tag: "Rejected straight away",
+    tone: "reject",
+  },
+];
+
+const ALLOWED_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+  "application/pdf",
+];
+const MAX_RECEIPT_BYTES = 5 * 1024 * 1024;
+
 // The user's designation is remembered in the browser so it is typed only once.
 const DESIGNATION_KEY = "claimcrew-designation";
 const DESIGNATION_EVENT = "claimcrew-designation-change";
@@ -54,21 +110,51 @@ type LoopItem = {
 type Item = AgentItem | LoopItem;
 
 const AGENT_META = {
-  classifier: { name: "Classifier", icon: "C", role: "Intent · identifies the claim type" },
-  reader: { name: "Reader", icon: "R", role: "Vision · extracts the receipt" },
-  auditor: { name: "Auditor", icon: "A", role: "Policy · verifies the claim" },
-  formFiller: { name: "Form Filler", icon: "F", role: "Document · fills the expense sheet" },
-  dispatcher: { name: "Dispatcher", icon: "D", role: "Comms · drafts the email to Accounts" },
+  classifier: {
+    name: "Classifier",
+    icon: "C",
+    role: "Intent · identifies the claim type",
+    blurb: "Looks at the receipt and decides whether it is an internet bill or a health club claim.",
+  },
+  reader: {
+    name: "Reader",
+    icon: "R",
+    role: "Vision · extracts the receipt",
+    blurb: "Reads the receipt and pulls out only the fields the company form needs.",
+  },
+  auditor: {
+    name: "Auditor",
+    icon: "A",
+    role: "Policy · verifies the claim",
+    blurb: "Checks the claim against policy and sends unclear reads back to the Reader.",
+  },
+  formFiller: {
+    name: "Form Filler",
+    icon: "F",
+    role: "Document · fills the expense sheet",
+    blurb: "Fills in the right company expense sheet and works out the reimbursable amount.",
+  },
+  dispatcher: {
+    name: "Dispatcher",
+    icon: "D",
+    role: "Comms · drafts the email to Accounts",
+    blurb: "Drafts the email to Accounts with the receipt and the filled form attached.",
+  },
 } as const;
 
 export default function ClaimFlow() {
   const [file, setFile] = useState<File | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
   const designation = useSyncExternalStore(
     subscribeDesignation,
     readDesignation,
     () => "",
   );
   const [running, setRunning] = useState(false);
+  const [stopped, setStopped] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const stoppedRef = useRef(false);
   const [items, setItems] = useState<Item[]>([]);
   const [result, setResult] = useState<ClaimResponse | null>(null);
   const [error, setError] = useState<{ message: string; hint: string } | null>(
@@ -195,11 +281,14 @@ export default function ClaimFlow() {
     setItems([]);
     setResult(null);
     setError(null);
+    setStopped(false);
+    stoppedRef.current = false;
     pausedRef.current = false;
     setPaused(false);
 
     // Watchdog: if nothing arrives for 90s, stop waiting and tell the user.
     const controller = new AbortController();
+    abortRef.current = controller;
     let stalled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const arm = () => {
@@ -250,6 +339,10 @@ export default function ClaimFlow() {
     } catch {
       finished = true;
       failWorking();
+      if (stoppedRef.current) {
+        setStopped(true);
+        return;
+      }
       setError(
         stalled
           ? {
@@ -275,39 +368,120 @@ export default function ClaimFlow() {
     }
   }
 
+  // Cancels the running claim. The server stops at its next step and nothing is sent.
+  function stopClaim() {
+    stoppedRef.current = true;
+    abortRef.current?.abort();
+  }
+
+  // Goes back to the sample list.
+  function clearFile() {
+    setFile(null);
+    setItems([]);
+    setResult(null);
+    setError(null);
+    setStopped(false);
+    setFileError(null);
+  }
+
+  // Loads a bundled sample receipt exactly as if the user had chosen it.
+  async function loadSample(s: Sample) {
+    if (running) return;
+    try {
+      const res = await fetch(`/samples/${s.file}`);
+      if (!res.ok) throw new Error("missing");
+      const blob = await res.blob();
+      // A judge can go straight from a sample to Start Claim. Never overwrites a typed value.
+      if (!designation.trim()) saveDesignation("Software Engineer");
+      pickFile(
+        new File([blob], s.file, {
+          type: s.file.endsWith(".pdf") ? "application/pdf" : "image/jpeg",
+        }),
+      );
+    } catch {
+      setFileError("Could not load that sample. Please try again.");
+    }
+  }
+
+  // Used by both the file picker and drag and drop: same checks as the server.
+  function pickFile(picked: File | null) {
+    if (!picked) return;
+    let f = picked;
+    // Some browsers give dropped HEIC photos an empty type.
+    if (!f.type && /\.(heic|heif)$/i.test(f.name)) {
+      f = new File([f], f.name, { type: "image/heic" });
+    }
+    if (!ALLOWED_TYPES.includes(f.type)) {
+      setFileError("That file type isn't supported. Use a JPG, PNG, WebP, HEIC or PDF.");
+      return;
+    }
+    if (f.size > MAX_RECEIPT_BYTES) {
+      setFileError("That file is over 5 MB. Please use a smaller one.");
+      return;
+    }
+    setFileError(null);
+    setFile(f);
+    setItems([]);
+    setResult(null);
+    setError(null);
+    setStopped(false);
+  }
+
   const started = items.length > 0 || running;
   const has = (agent: AgentName) =>
     items.some((x) => x.kind === "agent" && x.agent === agent);
 
   return (
     <div className="flex flex-col gap-10">
+      {/* ---- The crew: dim before a claim starts, live and sticky once it does ---- */}
+      <Tracker items={items} />
+
       {/* ---- Upload ---- */}
       <section className="agent-card p-6">
-        <div className="mb-4 flex items-center gap-3">
-          <span className="font-mono text-xs tracking-widest text-cyan-300">
+        <div className="mb-5 flex items-center gap-3">
+          <span className="font-mono text-sm tracking-widest text-cyan-300">
             STEP 01
           </span>
           <h2 className="text-xl font-semibold">Drop in your receipt</h2>
         </div>
         <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
-          <div className="flex flex-col gap-4">
-            <label className="cursor-pointer rounded-lg border border-dashed border-cyan-400/50 bg-cyan-400/5 px-5 py-4 text-sm text-cyan-100 transition hover:bg-cyan-400/10">
-              {file ? "Change receipt" : "Choose receipt (JPG, PNG, WebP, HEIC or PDF)"}
+          <div className="flex flex-col gap-4 sm:w-80 sm:shrink-0">
+            <label
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (!running) setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragging(false);
+                if (!running) pickFile(e.dataTransfer.files?.[0] ?? null);
+              }}
+              className={`flex h-28 cursor-pointer items-center justify-center rounded-lg border border-dashed px-5 text-center text-base transition ${
+                dragging
+                  ? "border-cyan-300 bg-cyan-400/20 text-cyan-50 shadow-[0_0_24px_rgba(34,211,238,0.35)]"
+                  : "border-cyan-400/50 bg-cyan-400/5 text-cyan-100 hover:bg-cyan-400/10"
+              }`}
+            >
+              {dragging
+                ? "Drop it here"
+                : file
+                  ? "Drop a new receipt or click to change"
+                  : "Drag a receipt here or click to choose (JPG, PNG, WebP, HEIC or PDF, up to 5 MB)"}
               <input
                 type="file"
                 accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
                 className="hidden"
                 disabled={running}
                 onChange={(e) => {
-                  setFile(e.target.files?.[0] ?? null);
-                  setItems([]);
-                  setResult(null);
-                  setError(null);
+                  pickFile(e.target.files?.[0] ?? null);
+                  e.target.value = ""; // lets the same file be chosen again
                 }}
               />
             </label>
+            {fileError && <div className="text-base text-red-300">{fileError}</div>}
             <div>
-              <label className="block text-sm text-slate-300" htmlFor="designation">
+              <label className="block text-base text-slate-300" htmlFor="designation">
                 Your designation <span className="text-red-300">*</span>
               </label>
               <input
@@ -320,9 +494,6 @@ export default function ClaimFlow() {
                 disabled={running}
                 className="mt-2 w-full rounded-lg border border-slate-600 bg-black/40 px-4 py-2 text-slate-100 outline-none focus:border-cyan-400"
               />
-              <div className="mt-1 text-xs text-slate-500">
-                Printed on the form. Remembered in this browser.
-              </div>
             </div>
             <button
               onClick={startClaim}
@@ -331,6 +502,14 @@ export default function ClaimFlow() {
             >
               {running ? "Agents at work…" : "▶ Start Claim"}
             </button>
+            {running && (
+              <button
+                onClick={stopClaim}
+                className="rounded-lg border border-red-400/60 bg-red-400/10 px-6 py-2 text-base font-semibold text-red-200 transition hover:bg-red-400/20"
+              >
+                ■ Stop
+              </button>
+            )}
           </div>
 
           {file && previewUrl && (
@@ -342,7 +521,7 @@ export default function ClaimFlow() {
                   className="h-96 w-full rounded-lg border border-slate-600 bg-white"
                 />
               ) : file.type === "image/heic" || file.type === "image/heif" ? (
-                <div className="flex h-40 items-center justify-center rounded-lg border border-slate-600 px-4 text-center text-sm text-slate-300">
+                <div className="flex h-40 items-center justify-center rounded-lg border border-slate-600 px-4 text-center text-base text-slate-300">
                   HEIC photos can&apos;t be previewed in the browser, but the
                   Reader can still process this file.
                 </div>
@@ -354,24 +533,65 @@ export default function ClaimFlow() {
                   className="max-h-96 w-auto self-start rounded-lg border border-slate-600"
                 />
               )}
-              <span className="font-mono text-xs text-slate-400">{file.name}</span>
+              <span className="font-mono text-sm text-slate-400">{file.name}</span>
+              {!running && (
+                <button
+                  onClick={clearFile}
+                  className="self-start text-base text-cyan-300 underline-offset-4 hover:underline"
+                >
+                  ← Choose a different receipt
+                </button>
+              )}
+            </div>
+          )}
+
+          {!file && (
+            <div className="flex-1">
+              <div className="mb-3 text-base text-slate-300">
+                No receipt handy? Try a sample:
+              </div>
+              {/* Made-up files so the whole flow can be tried in one click */}
+              <div className="flex flex-col divide-y divide-slate-700/60 overflow-hidden rounded-lg border border-slate-700/70">
+                {SAMPLES.map((s) => (
+                  <button
+                    key={s.file}
+                    onClick={() => loadSample(s)}
+                    disabled={running}
+                    className="flex items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <span className="text-base">
+                      <span className="font-semibold text-slate-100">{s.title}</span>
+                      <span className="block text-sm text-slate-400">{s.kind}</span>
+                    </span>
+                    <span
+                      className={`shrink-0 rounded-full border px-2.5 py-0.5 text-sm ${
+                        s.tone === "loop"
+                          ? "border-amber-400/50 bg-amber-400/10 text-amber-200"
+                          : s.tone === "reject"
+                            ? "border-red-400/50 bg-red-400/10 text-red-200"
+                            : "border-emerald-400/50 bg-emerald-400/10 text-emerald-200"
+                      }`}
+                    >
+                      {s.tag}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>
       </section>
 
-      {started && <Tracker items={items} />}
-
       {/* ---- Agent timeline ---- */}
       {started && (
         <section>
           <div className="mb-5 flex items-center gap-3">
-            <span className="font-mono text-xs tracking-widest text-cyan-300">
+            <span className="font-mono text-sm tracking-widest text-cyan-300">
               STEP 02
             </span>
             <h2 className="text-xl font-semibold">Agents at work</h2>
             {running && (
-              <span className="font-mono text-xs text-cyan-300">
+              <span className="font-mono text-sm text-cyan-300">
                 LIVE<span className="blink">_</span>
               </span>
             )}
@@ -413,20 +633,39 @@ export default function ClaimFlow() {
         </section>
       )}
 
+      {stopped && (
+        <section id="claim-error" className="agent-card step-in scroll-mt-28 p-6">
+          <div className="font-mono text-sm tracking-widest text-slate-400">
+            STOPPED BY YOU
+          </div>
+          <div className="mt-1 text-lg font-semibold">The claim was cancelled.</div>
+          <div className="mt-1 text-base text-slate-300">
+            Nothing was sent. You can start again whenever you are ready.
+          </div>
+          <button
+            onClick={startClaim}
+            disabled={running || !file || !designation.trim()}
+            className="mt-4 rounded-lg border border-cyan-400/60 bg-cyan-400/10 px-5 py-2 text-base font-semibold text-cyan-200 transition hover:bg-cyan-400/20 disabled:opacity-40"
+          >
+            ↻ Start again
+          </button>
+        </section>
+      )}
+
       {error && (
         <section id="claim-error" className="agent-card is-bad step-in scroll-mt-28 p-6">
           <div className="flex items-start gap-4">
             <span className="text-3xl text-red-300">⚠</span>
             <div className="flex-1">
-              <div className="font-mono text-xs tracking-widest text-red-300">
+              <div className="font-mono text-sm tracking-widest text-red-300">
                 CLAIM STOPPED
               </div>
               <div className="mt-1 text-lg font-semibold">{error.message}</div>
-              <div className="mt-1 text-sm text-slate-300">{error.hint}</div>
+              <div className="mt-1 text-base text-slate-300">{error.hint}</div>
               <button
                 onClick={startClaim}
                 disabled={running || !file || !designation.trim()}
-                className="mt-4 rounded-lg border border-red-400/60 bg-red-400/10 px-5 py-2 text-sm font-semibold text-red-200 transition hover:bg-red-400/20 disabled:opacity-40"
+                className="mt-4 rounded-lg border border-red-400/60 bg-red-400/10 px-5 py-2 text-base font-semibold text-red-200 transition hover:bg-red-400/20 disabled:opacity-40"
               >
                 ↻ Try again
               </button>
@@ -459,7 +698,7 @@ export default function ClaimFlow() {
             setPaused(false);
             scrollToLive();
           }}
-          className="fixed bottom-6 left-1/2 z-30 -translate-x-1/2 rounded-full border border-cyan-400/60 bg-[#080c16]/95 px-5 py-2 font-mono text-xs text-cyan-200 shadow-[0_0_24px_rgba(34,211,238,0.3)] transition hover:bg-cyan-400/10"
+          className="fixed bottom-6 left-1/2 z-30 -translate-x-1/2 rounded-full border border-cyan-400/60 bg-[#080c16]/95 px-5 py-2 font-mono text-sm text-cyan-200 shadow-[0_0_24px_rgba(34,211,238,0.3)] transition hover:bg-cyan-400/10"
         >
           ↓ Jump to live
         </button>
@@ -496,7 +735,7 @@ function ClassificationView({ c }: { c: Classification }) {
     <div className="mt-4 rounded-xl border border-slate-700/70 bg-black/30 p-4">
       <div className="flex flex-wrap items-center gap-3">
         <span
-          className={`rounded-md border px-3 py-1 font-mono text-sm font-semibold ${
+          className={`rounded-md border px-3 py-1 font-mono text-base font-semibold ${
             bad
               ? "border-red-400/60 bg-red-400/10 text-red-200"
               : "border-cyan-400/60 bg-cyan-400/10 text-cyan-100"
@@ -508,7 +747,7 @@ function ClassificationView({ c }: { c: Classification }) {
               ? "HEALTH CLUB RECEIPT"
               : "INTERNET BILL"}
         </span>
-        <span className="flex items-center gap-1.5 text-xs text-slate-400">
+        <span className="flex items-center gap-1.5 text-sm text-slate-400">
           <span
             className="inline-block h-1.5 w-1.5 rounded-full"
             style={{ background: lv.hex, boxShadow: `0 0 6px ${lv.hex}` }}
@@ -516,7 +755,7 @@ function ClassificationView({ c }: { c: Classification }) {
           {pct}% sure
         </span>
       </div>
-      {c.reason && <p className="mt-3 text-sm text-slate-300">{c.reason}</p>}
+      {c.reason && <p className="mt-3 text-base text-slate-300">{c.reason}</p>}
     </div>
   );
 }
@@ -530,13 +769,23 @@ function Tracker({ items }: { items: Item[] }) {
     bad: "border-red-400 text-red-300",
   };
   return (
-    <div className="sticky top-2 z-20 rounded-2xl border border-slate-700/70 bg-[#080c16]/90 px-4 py-3 backdrop-blur">
+    <div className="sticky top-2 z-20 rounded-2xl border border-slate-700/70 bg-[#080c16] px-4 py-3">
       <div className="flex items-center">
         {TRACK.map((agent, i) => {
           const st = trackState(items, agent);
           const next = i < TRACK.length - 1;
           return (
             <div key={agent} className={`flex items-center ${next ? "flex-1" : ""}`}>
+              <div className="group relative">
+              {/* Hover card: what this agent does */}
+              <span
+                className={`pointer-events-none absolute top-full z-30 mt-3 w-72 rounded-lg border border-slate-600 bg-[#0b1020] px-4 py-3 text-left text-base leading-relaxed text-slate-200 opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 ${i === TRACK.length - 1 ? "right-0" : "left-0"}`}
+              >
+                <span className="mb-0.5 block font-semibold text-cyan-200">
+                  {AGENT_META[agent].name}
+                </span>
+                {AGENT_META[agent].blurb}
+              </span>
               <button
                 onClick={() => {
                   const els = document.querySelectorAll(`[data-agent="${agent}"]`);
@@ -544,7 +793,6 @@ function Tracker({ items }: { items: Item[] }) {
                 }}
                 disabled={st === "standby"}
                 className="flex items-center gap-2 disabled:cursor-default"
-                title={AGENT_META[agent].role}
               >
                 <span
                   className={`flex h-8 w-8 items-center justify-center rounded-full border-2 font-mono text-sm font-bold transition-all ${colors[st]} ${st === "working" ? "animate-pulse" : ""}`}
@@ -552,11 +800,12 @@ function Tracker({ items }: { items: Item[] }) {
                   {st === "done" ? "✓" : st === "bad" ? "✕" : AGENT_META[agent].icon}
                 </span>
                 <span
-                  className={`hidden text-sm sm:inline ${st === "standby" ? "text-slate-500" : "text-slate-200"}`}
+                  className={`hidden text-base sm:inline ${st === "standby" ? "text-slate-400" : "text-slate-200"}`}
                 >
                   {AGENT_META[agent].name}
                 </span>
               </button>
+              </div>
               {next && (
                 <div className="mx-3 h-0.5 flex-1 overflow-hidden rounded bg-slate-700">
                   <div
@@ -620,11 +869,11 @@ function SendPanel({
   if (sent) {
     return (
       <section className="agent-card is-done step-in p-6">
-        <div className="font-mono text-xs tracking-widest text-emerald-300">EMAIL SENT</div>
+        <div className="font-mono text-sm tracking-widest text-emerald-300">EMAIL SENT</div>
         <div className="mt-1 text-lg font-semibold">
           Sent to Accounts, with {sent} in CC.
         </div>
-        <div className="mt-1 text-sm text-slate-300">
+        <div className="mt-1 text-base text-slate-300">
           Both attachments (original receipt and filled expense sheet) were included.
         </div>
       </section>
@@ -634,10 +883,10 @@ function SendPanel({
   return (
     <section className="agent-card step-in p-6">
       <div className="mb-4 flex items-center gap-3">
-        <span className="font-mono text-xs tracking-widest text-cyan-300">STEP 03</span>
+        <span className="font-mono text-sm tracking-widest text-cyan-300">STEP 03</span>
         <h2 className="text-xl font-semibold">Approve &amp; send</h2>
       </div>
-      <label className="block text-sm text-slate-300" htmlFor="cc">
+      <label className="block text-base text-slate-300" htmlFor="cc">
         CC email <span className="text-red-300">*</span>
       </label>
       <input
@@ -650,9 +899,9 @@ function SendPanel({
         className="mt-2 w-full rounded-lg border border-slate-600 bg-black/40 px-4 py-2 text-slate-100 outline-none focus:border-cyan-400"
       />
       {cc && !valid && (
-        <div className="mt-1 text-xs text-red-300">Enter one valid email address.</div>
+        <div className="mt-1 text-base text-red-300">Enter one valid email address.</div>
       )}
-      {err && <div className="mt-3 text-sm text-red-300">{err}</div>}
+      {err && <div className="mt-3 text-base text-red-300">{err}</div>}
       <button
         onClick={send}
         disabled={!valid || sending}
@@ -660,8 +909,8 @@ function SendPanel({
       >
         {sending ? "Sending…" : "✉ Approve & Send"}
       </button>
-      <div className="mt-2 text-xs text-slate-500">
-        CC is required. Nothing is sent until you approve.
+      <div className="mt-2 text-base text-slate-400">
+        Enter your own email so you get a copy of exactly what ClaimCrew sends to Accounts on your behalf. Nothing is sent until you approve.
       </div>
     </section>
   );
@@ -738,15 +987,15 @@ function AgentCard({
           <div className="flex items-center gap-2">
             <span className="text-lg font-semibold">{meta.name} Agent</span>
             {item.attempt > 1 && (
-              <span className="rounded bg-amber-400/15 px-2 py-0.5 font-mono text-xs text-amber-300">
+              <span className="rounded bg-amber-400/15 px-2 py-0.5 font-mono text-sm text-amber-300">
                 PASS {item.attempt}
               </span>
             )}
           </div>
-          <div className="text-sm text-slate-400">{meta.role}</div>
+          <div className="text-base text-slate-400">{meta.role}</div>
         </div>
         <span
-          className={`ml-auto shrink-0 font-mono text-xs tracking-wider ${
+          className={`ml-auto shrink-0 font-mono text-sm tracking-wider ${
             state === "working"
               ? "text-cyan-300"
               : state === "warn"
@@ -769,7 +1018,7 @@ function AgentCard({
         {collapsible && item.status === "done" && (
           <button
             onClick={() => setOpen((o) => !o)}
-            className="shrink-0 rounded-md border border-slate-600 px-2 py-1 font-mono text-xs text-slate-300 transition hover:border-cyan-400 hover:text-cyan-200"
+            className="shrink-0 rounded-md border border-slate-600 px-2 py-1 font-mono text-sm text-slate-300 transition hover:border-cyan-400 hover:text-cyan-200"
           >
             {open ? "Hide details" : "Show details"}
           </button>
@@ -777,12 +1026,12 @@ function AgentCard({
       </div>
 
       {collapsed && item.summary && (
-        <div className="mt-3 text-sm text-slate-400">{item.summary}</div>
+        <div className="mt-3 text-base text-slate-400">{item.summary}</div>
       )}
 
       {item.status === "working" && (
         <div className="mt-4">
-          <div className="mb-2 font-mono text-sm text-cyan-200">
+          <div className="mb-2 font-mono text-base text-cyan-200">
             {item.note}
             <span className="blink">…</span>
           </div>
@@ -791,7 +1040,7 @@ function AgentCard({
       )}
 
       {item.status === "failed" && (
-        <div className="mt-4 font-mono text-sm text-red-300">
+        <div className="mt-4 font-mono text-base text-red-300">
           Stopped before finishing: {item.note}
         </div>
       )}
@@ -842,18 +1091,18 @@ function FieldsTable({ fields }: { fields: ReaderResult }) {
             background: `conic-gradient(${overallLevel.hex} ${overall * 3.6}deg, rgba(100,116,139,0.3) 0deg)`,
           }}
         >
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#080c16] font-mono text-sm font-bold">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#080c16] font-mono text-base font-bold">
             {overall}%
           </div>
         </div>
         <div>
-          <div className="font-mono text-xs tracking-widest text-slate-400">
+          <div className="font-mono text-sm tracking-widest text-slate-400">
             OVERALL READ QUALITY
           </div>
           <div className={`text-lg font-semibold ${overallLevel.text}`}>
             {overallLevel.label} confidence
           </div>
-          <div className="text-xs text-slate-400">
+          <div className="text-base text-slate-400">
             Average across all {keys.length} extracted fields
           </div>
         </div>
@@ -870,14 +1119,14 @@ function FieldsTable({ fields }: { fields: ReaderResult }) {
               key={key}
               className="rounded-xl border border-slate-700/70 bg-black/30 p-3"
             >
-              <div className="text-xs uppercase tracking-wider text-slate-400">
+              <div className="text-sm uppercase tracking-wider text-slate-400">
                 {labelOf(key)}
               </div>
               <div className="mt-0.5 truncate text-base font-semibold">
                 {f.value ?? "Not found"}
               </div>
 
-              <div className="mt-3 flex items-center justify-between text-xs">
+              <div className="mt-3 flex items-center justify-between text-sm">
                 <span className="flex items-center gap-1.5 text-slate-400">
                   <span
                     className="inline-block h-1.5 w-1.5 rounded-full"
@@ -901,7 +1150,7 @@ function FieldsTable({ fields }: { fields: ReaderResult }) {
           );
         })}
       </div>
-      <div className="mt-3 text-xs text-slate-500">
+      <div className="mt-3 text-base text-slate-400">
         Fields below 70% confidence are sent back to the Reader by the Auditor.
       </div>
     </div>
@@ -923,13 +1172,13 @@ function AuditChecks({ audit }: { audit: AuditResult }) {
               {c.note ? "!" : c.passed ? "✓" : "✕"}
             </span>
             <div>
-              <div className="text-sm font-medium">{c.label}</div>
-              <div className="text-xs text-slate-400">{c.detail}</div>
+              <div className="text-base font-medium">{c.label}</div>
+              <div className="text-base text-slate-400">{c.detail}</div>
             </div>
           </li>
         ))}
       </ul>
-      <p className="mt-3 text-sm text-slate-300">{audit.reason}</p>
+      <p className="mt-3 text-base text-slate-300">{audit.reason}</p>
     </div>
   );
 }
@@ -939,11 +1188,11 @@ function FormPreview({ form }: { form: FilledForm }) {
   return (
     <div className="mt-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="font-mono text-xs text-slate-400">{form.filename}</div>
+        <div className="font-mono text-sm text-slate-400">{form.filename}</div>
         <a
           href={href}
           download={form.filename}
-          className="rounded-lg border border-emerald-400/60 bg-emerald-400/10 px-4 py-2 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-400/20"
+          className="rounded-lg border border-emerald-400/60 bg-emerald-400/10 px-4 py-2 text-base font-semibold text-emerald-200 transition hover:bg-emerald-400/20"
         >
           ⬇ Download PDF
         </a>
@@ -960,7 +1209,7 @@ function FormPreview({ form }: { form: FilledForm }) {
 function DraftPreview({ draft }: { draft: EmailDraft }) {
   return (
     <div className="mt-4 overflow-hidden rounded-xl border border-slate-700/70 bg-black/30">
-      <div className="grid gap-1 border-b border-slate-700/70 px-4 py-3 text-sm">
+      <div className="grid gap-1 border-b border-slate-700/70 px-4 py-3 text-base">
         <div className="flex gap-3">
           <span className="w-16 shrink-0 text-slate-500">To</span>
           <span>{draft.toLabel}</span>
@@ -975,7 +1224,7 @@ function DraftPreview({ draft }: { draft: EmailDraft }) {
             {draft.attachments.map((a) => (
               <span
                 key={a.filename}
-                className="rounded-md border border-cyan-400/40 bg-cyan-400/10 px-2 py-0.5 text-xs text-cyan-100"
+                className="rounded-md border border-cyan-400/40 bg-cyan-400/10 px-2 py-0.5 text-sm text-cyan-100"
                 title={a.label}
               >
                 📎 {a.label}: {a.filename}
@@ -985,11 +1234,11 @@ function DraftPreview({ draft }: { draft: EmailDraft }) {
         </div>
       </div>
       <div
-        className="px-4 py-4 text-sm leading-relaxed text-slate-200"
+        className="px-4 py-4 text-base leading-relaxed text-slate-200"
         // Built from escaped text by draftToHtml, same layout as the sent email.
         dangerouslySetInnerHTML={{ __html: draftToHtml(draft.body, { inherit: true }) }}
       />
-      <div className="border-t border-slate-700/70 px-4 py-2 font-mono text-xs text-slate-500">
+      <div className="border-t border-slate-700/70 px-4 py-2 font-mono text-sm text-slate-500">
         DRAFT · nothing has been sent
       </div>
     </div>
@@ -1004,7 +1253,7 @@ function LoopBanner({ item }: { item: LoopItem }) {
         <div className="font-semibold text-amber-200">
           Auditor sent the receipt back to the Reader
         </div>
-        <div className="text-sm text-amber-100/80">
+        <div className="text-base text-amber-100/80">
           Re-reading: {item.fields.map(labelOf).join(", ")} (retry{" "}
           {item.attempt})
         </div>
@@ -1029,9 +1278,9 @@ function Verdict({ result }: { result: ClaimResponse }) {
           <div className="text-xl font-semibold">
             {approved ? "Claim approved by the Auditor" : "Claim rejected"}
           </div>
-          <div className="text-sm text-slate-300">{result.audit.reason}</div>
+          <div className="text-base text-slate-300">{result.audit.reason}</div>
         </div>
-        <span className="ml-auto font-mono text-xs text-slate-500">
+        <span className="ml-auto font-mono text-sm text-slate-500">
           {result.mode.toUpperCase()} MODE
         </span>
       </div>

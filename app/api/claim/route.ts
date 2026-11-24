@@ -70,6 +70,8 @@ export async function POST(request: Request) {
       // Remember which agent was working, so a failure can point at it.
       let working: AgentName | undefined;
       const track = (event: PipelineEvent) => {
+        // The user stopped or left: end the run at the next step instead of finishing it.
+        if (closed) throw new Error("Client disconnected");
         if (event.type === "agent_start") working = event.agent;
         if (event.type === "agent_done") working = undefined;
         emit(event);

@@ -4,6 +4,7 @@ import type {
   ReaderResult,
   ReceiptFieldName,
 } from "@/lib/claim-types";
+import sharp from "sharp";
 import { chatCompletion } from "@/lib/llm";
 
 function buildSystemPrompt(config: ClaimConfig): string {
@@ -54,18 +55,52 @@ export function parseReaderOutput(text: string, config: ClaimConfig): ReaderResu
   return result;
 }
 
-// focus: when the Auditor sends the receipt back, re-read these fields carefully.
+// Photos and screenshots can be enhanced for a second look. PDFs and HEIC are read as they are.
+export function canEnhance(type: string): boolean {
+  return /^image\/(jpeg|png|webp)$/.test(type);
+}
+
+// The Reader's second look: a contrast-boosted copy, which brings out faded or
+// light print that the first pass was unsure about. Returns null if it can't.
+async function enhanceForRetry(bytes: Buffer): Promise<Buffer | null> {
+  try {
+    return await sharp(bytes)
+      .rotate()
+      .resize({ width: 2000, height: 2000, fit: "inside", withoutEnlargement: true })
+      .grayscale()
+      // Adaptive local contrast: lifts faded print without distorting the page.
+      .clahe({ width: 40, height: 40, maxSlope: 12 })
+      .normalise()
+      .sharpen()
+      .png()
+      .toBuffer();
+  } catch (e) {
+    console.error("Image enhancement failed, re-reading the original:", e);
+    return null;
+  }
+}
+
+// focus: when the Auditor sends the receipt back, re-read these fields carefully,
+// using an enhanced copy of the image when possible.
 export async function runReader(
   file: File,
   config: ClaimConfig,
   focus: ReceiptFieldName[] = [],
 ): Promise<ReaderResult> {
-  const userText =
-    focus.length > 0
-      ? `Extract the fields from this receipt. A reviewer found these fields unclear: ${focus.join(", ")}. Look at the receipt again very carefully for them. If they are truly not visible, return null with confidence 0.`
-      : "Extract the fields from this receipt.";
-  const bytes = Buffer.from(await file.arrayBuffer());
-  const dataUrl = `data:${file.type};base64,${bytes.toString("base64")}`;
+  const retrying = focus.length > 0;
+  const userText = retrying
+    ? `Extract the fields from this receipt. A reviewer found these fields unclear: ${focus.join(", ")}. Look at the receipt again very carefully for them. If they are truly not visible, return null with confidence 0.`
+    : "Extract the fields from this receipt.";
+  let bytes: Buffer = Buffer.from(await file.arrayBuffer());
+  let mime = file.type;
+  if (retrying && canEnhance(file.type)) {
+    const enhanced = await enhanceForRetry(bytes);
+    if (enhanced) {
+      bytes = enhanced;
+      mime = "image/png";
+    }
+  }
+  const dataUrl = `data:${mime};base64,${bytes.toString("base64")}`;
 
   const completion = await chatCompletion({
     temperature: 0,
