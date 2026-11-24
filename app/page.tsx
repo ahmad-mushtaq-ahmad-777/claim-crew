@@ -29,7 +29,7 @@ export default function Home() {
           <span className="rounded-full border border-violet-400/40 bg-violet-400/10 px-3.5 py-1 text-violet-100">
             Health club memberships
           </span>
-          <span className="text-slate-400">More claim types coming</span>
+          <span className="text-slate-400">New claim types are just a config away</span>
         </div>
       </header>
 

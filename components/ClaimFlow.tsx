@@ -31,35 +31,35 @@ const SAMPLES: Sample[] = [
     file: "stormfiber-payment-receipt.pdf",
     kind: "Internet bill",
     title: "StormFiber payment receipt",
-    tag: "Happy path",
+    tag: "Clean claim",
     tone: "happy",
   },
   {
     file: "stormfiber-missing-holder.pdf",
     kind: "Internet bill",
     title: "Account holder missing",
-    tag: "Retry loop, then rejected",
+    tag: "Retries, then rejected",
     tone: "loop",
   },
   {
     file: "iron-peak-gym-receipt.pdf",
     kind: "Health club",
     title: "Iron Peak Fitness Club",
-    tag: "Happy path",
+    tag: "Clean claim",
     tone: "happy",
   },
   {
     file: "iron-peak-gym-faded-name.jpg",
     kind: "Health club",
     title: "Faded member name",
-    tag: "Retry loop, then recovers",
+    tag: "Retries, then recovers",
     tone: "loop",
   },
   {
     file: "iron-peak-gym-last-year.pdf",
     kind: "Health club",
     title: "Last year's receipt",
-    tag: "Rejected straight away",
+    tag: "Rejected immediately",
     tone: "reject",
   },
 ];
@@ -502,6 +502,13 @@ export default function ClaimFlow() {
             >
               {running ? "Agents at work…" : "▶ Start Claim"}
             </button>
+            {!running && (!file || !designation.trim()) && (
+              <div className="-mt-2 text-base text-slate-400">
+                {!file
+                  ? "Choose a receipt or sample first."
+                  : "Enter your designation to continue."}
+              </div>
+            )}
             {running && (
               <button
                 onClick={stopClaim}
