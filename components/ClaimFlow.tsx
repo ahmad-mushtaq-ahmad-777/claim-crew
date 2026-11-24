@@ -1130,7 +1130,11 @@ function FieldsTable({ fields }: { fields: ReaderResult }) {
                 {labelOf(key)}
               </div>
               <div className="mt-0.5 truncate text-base font-semibold">
-                {f.value ?? "Not found"}
+                {f.value === null || f.value === undefined
+                  ? "Not found"
+                  : key === "amount" && typeof f.value === "number"
+                    ? `Rs. ${f.value.toLocaleString("en-US", { maximumFractionDigits: 2 })}`
+                    : f.value}
               </div>
 
               <div className="mt-3 flex items-center justify-between text-sm">

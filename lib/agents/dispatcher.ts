@@ -12,7 +12,7 @@ const val = (fields: ReaderResult, key: string) => {
 
 function money(n: number | string): string {
   return typeof n === "number"
-    ? n.toLocaleString("en-US", { maximumFractionDigits: 2 })
+    ? `Rs. ${n.toLocaleString("en-US", { maximumFractionDigits: 2 })}`
     : n;
 }
 

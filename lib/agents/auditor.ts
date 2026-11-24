@@ -76,7 +76,7 @@ function runChecks(fields: ReaderResult, config: ClaimConfig, today: Date) {
     passed: typeof amountValue === "number" && amountValue > 0,
     detail:
       typeof amountValue === "number" && amountValue > 0
-        ? `Invoice amount ${amountValue} will be written on the form in full.`
+        ? `Invoice amount Rs. ${amountValue.toLocaleString("en-US")} will be written on the form in full.`
         : "No valid amount was found on the receipt.",
   };
 
@@ -91,8 +91,8 @@ function runChecks(fields: ReaderResult, config: ClaimConfig, today: Date) {
       passed: true,
       note: over,
       detail: over
-        ? `Reimbursable amount ${reimbursable.toLocaleString("en-US")} is over the monthly cap of ${config.monthlyCap.toLocaleString("en-US")}. Full amounts are written on the form and Accounts will apply the cap.`
-        : `Reimbursable amount ${reimbursable.toLocaleString("en-US")} is within the monthly cap of ${config.monthlyCap.toLocaleString("en-US")}.`,
+        ? `Reimbursable amount Rs. ${reimbursable.toLocaleString("en-US")} is over the monthly cap of Rs. ${config.monthlyCap.toLocaleString("en-US")}. Full amounts are written on the form and Accounts will apply the cap.`
+        : `Reimbursable amount Rs. ${reimbursable.toLocaleString("en-US")} is within the monthly cap of Rs. ${config.monthlyCap.toLocaleString("en-US")}.`,
     });
   }
 
@@ -134,7 +134,7 @@ async function writeReason(
           {
             role: "system",
             content:
-              "You are the Auditor agent in an expense-claim system. Given the verdict and check results, write 1-2 plain sentences for the employee explaining the outcome. If rejected, state the exact reason and what they could do. If a check has note: true, it is a heads-up that does not block the claim, so mention it briefly. Do not invent facts or policy.",
+              "You are the Auditor agent in an expense-claim system. Given the verdict and check results, write 1-2 plain sentences for the employee explaining the outcome. If rejected, state the exact reason and what they could do. If a check has note: true, it is a heads-up that does not block the claim, so mention it briefly. Amounts are in Pakistani rupees: always write them as Rs. followed by the number, exactly as given in the checks. Do not invent facts or policy.",
           },
           { role: "user", content: JSON.stringify({ verdict, checks }) },
         ],
