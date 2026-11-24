@@ -21,7 +21,7 @@ const RIGHT = LEFT + TABLE_W;
 const ITEM_ROWS = 14;
 const BLACK = rgb(0, 0, 0);
 
-function formatDate(value: string | number | null): string {
+export function formatDate(value: string | number | null): string {
   if (value === null) return "";
   const m = String(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return String(value);
@@ -29,13 +29,13 @@ function formatDate(value: string | number | null): string {
   return `${m[3]}-${months[Number(m[2]) - 1]}-${m[1]}`;
 }
 
-function formatAmount(value: string | number | null): string {
+export function formatAmount(value: string | number | null): string {
   if (typeof value !== "number") return value === null ? "" : String(value);
   return value.toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
 
 // Shrink text to fit a width; truncate with an ellipsis only as a last resort.
-function fit(font: PDFFont, text: string, maxWidth: number, size: number, min = 6) {
+export function fit(font: PDFFont, text: string, maxWidth: number, size: number, min = 6) {
   let s = size;
   while (s > min && font.widthOfTextAtSize(text, s) > maxWidth) s -= 0.5;
   let t = text;

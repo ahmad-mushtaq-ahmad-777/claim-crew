@@ -11,7 +11,7 @@ export default function Home() {
           ClaimCrew
         </h1>
         <p className="text-lg text-slate-300">
-          Four agents. One receipt. Zero paperwork.
+          Five agents. One receipt. Zero paperwork.
         </p>
       </header>
 

@@ -1,5 +1,6 @@
 import type { ReaderResponse } from "@/lib/claim-types";
 import { runReader } from "@/lib/agents/reader";
+import { CLAIM_CONFIGS } from "@/lib/claim-configs";
 import { isMockMode } from "@/lib/llm";
 
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
@@ -16,14 +17,7 @@ function mockReader(): ReaderResponse {
   return {
     agent: "reader",
     mode: "mock",
-    fields: {
-      beneficiary: { value: "Jane Doe", confidence: 0.95 },
-      serviceProvider: { value: "Example ISP", confidence: 0.97 },
-      date: { value: "2026-11-05", confidence: 0.93 },
-      month: { value: "November", confidence: 0.9 },
-      natureOfExpense: { value: "Internet bill", confidence: 0.96 },
-      amount: { value: 4500, confidence: 0.98 },
-    },
+    fields: CLAIM_CONFIGS.internet.mockFields,
   };
 }
 
@@ -54,7 +48,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const fields = await runReader(receipt);
+    const fields = await runReader(receipt, CLAIM_CONFIGS.internet);
     const response: ReaderResponse = { agent: "reader", mode: "live", fields };
     return Response.json(response);
   } catch (e) {

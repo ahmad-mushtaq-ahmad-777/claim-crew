@@ -1,15 +1,18 @@
-// Fields the internet reimbursement form needs from a receipt.
-// "Number", signatures and approvals are intentionally NOT extracted.
-export const RECEIPT_FIELDS = [
-  "beneficiary",
-  "serviceProvider",
-  "date",
-  "month",
-  "natureOfExpense",
-  "amount",
-] as const;
+// The kinds of claim the system handles. Each has a config in claim-configs.ts.
+export type ClaimTypeId = "internet" | "gym";
 
-export type ReceiptFieldName = (typeof RECEIPT_FIELDS)[number];
+// The Classifier's decision about what kind of receipt was uploaded.
+export type Classification = {
+  type: ClaimTypeId | "unknown";
+  // 0 to 1: how sure the Classifier is
+  confidence: number;
+  // One short sentence on what it saw
+  reason: string;
+};
+
+// Field names depend on the claim type (see claim-configs.ts).
+// "Number", signatures and approvals are intentionally NOT extracted.
+export type ReceiptFieldName = string;
 
 export type ExtractedField = {
   // null when the field could not be found on the receipt
@@ -18,14 +21,16 @@ export type ExtractedField = {
   confidence: number;
 };
 
-export type ReaderResult = Record<ReceiptFieldName, ExtractedField>;
+export type ReaderResult = Record<string, ExtractedField>;
 
 // ---- Auditor ----
 
 export type AuditCheck = {
-  id: "year" | "expenseType" | "amount" | "confidence";
+  id: "year" | "expenseType" | "amount" | "confidence" | "cap";
   label: string;
   passed: boolean;
+  // A heads-up that does not block the claim (shown in amber instead of a tick).
+  note?: boolean;
   detail: string;
 };
 
@@ -43,7 +48,12 @@ export type AuditResult = {
 
 // ---- Orchestration ----
 
-export type AgentName = "reader" | "auditor" | "formFiller" | "dispatcher";
+export type AgentName =
+  | "classifier"
+  | "reader"
+  | "auditor"
+  | "formFiller"
+  | "dispatcher";
 
 // The email the Dispatcher drafts for Accounts. Nothing is sent until the user approves.
 export type EmailDraft = {
@@ -70,6 +80,7 @@ export type TraceStep = {
 
 export type ClaimResponse = {
   mode: "mock" | "live";
+  classification: Classification;
   fields: ReaderResult;
   audit: AuditResult;
   // Present only when the claim was approved.
@@ -82,6 +93,13 @@ export type ClaimResponse = {
 // Live events streamed from /api/claim (one JSON object per line).
 export type PipelineEvent =
   | { type: "agent_start"; agent: AgentName; attempt: number; note: string }
+  | {
+      type: "agent_done";
+      agent: "classifier";
+      attempt: number;
+      summary: string;
+      classification: Classification;
+    }
   | {
       type: "agent_done";
       agent: "reader";

@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { draftToHtml } from "@/lib/email-html";
+import { FIELD_LABELS } from "@/lib/claim-configs";
+import { POLICY } from "@/lib/policy";
 import {
-  RECEIPT_FIELDS,
   type AgentName,
   type AuditResult,
+  type Classification,
   type ClaimResponse,
   type EmailDraft,
   type FilledForm,
@@ -14,14 +16,20 @@ import {
   type ReceiptFieldName,
 } from "@/lib/claim-types";
 
-const FIELD_LABELS: Record<ReceiptFieldName, string> = {
-  beneficiary: "Beneficiary",
-  serviceProvider: "Service Provider",
-  date: "Date",
-  month: "Month",
-  natureOfExpense: "Nature of Expense",
-  amount: "Amount",
+const labelOf = (key: string) => FIELD_LABELS[key] ?? key;
+
+// The user's designation is remembered in the browser so it is typed only once.
+const DESIGNATION_KEY = "claimcrew-designation";
+const DESIGNATION_EVENT = "claimcrew-designation-change";
+const subscribeDesignation = (cb: () => void) => {
+  window.addEventListener(DESIGNATION_EVENT, cb);
+  return () => window.removeEventListener(DESIGNATION_EVENT, cb);
 };
+const readDesignation = () => localStorage.getItem(DESIGNATION_KEY) ?? "";
+function saveDesignation(value: string) {
+  localStorage.setItem(DESIGNATION_KEY, value);
+  window.dispatchEvent(new Event(DESIGNATION_EVENT));
+}
 
 type AgentItem = {
   kind: "agent";
@@ -31,6 +39,7 @@ type AgentItem = {
   status: "working" | "done" | "failed";
   note: string;
   summary?: string;
+  classification?: Classification;
   fields?: ReaderResult;
   audit?: AuditResult;
   form?: FilledForm;
@@ -45,6 +54,7 @@ type LoopItem = {
 type Item = AgentItem | LoopItem;
 
 const AGENT_META = {
+  classifier: { name: "Classifier", icon: "C", role: "Intent · identifies the claim type" },
   reader: { name: "Reader", icon: "R", role: "Vision · extracts the receipt" },
   auditor: { name: "Auditor", icon: "A", role: "Policy · verifies the claim" },
   formFiller: { name: "Form Filler", icon: "F", role: "Document · fills the expense sheet" },
@@ -53,6 +63,11 @@ const AGENT_META = {
 
 export default function ClaimFlow() {
   const [file, setFile] = useState<File | null>(null);
+  const designation = useSyncExternalStore(
+    subscribeDesignation,
+    readDesignation,
+    () => "",
+  );
   const [running, setRunning] = useState(false);
   const [items, setItems] = useState<Item[]>([]);
   const [result, setResult] = useState<ClaimResponse | null>(null);
@@ -136,6 +151,7 @@ export default function ClaimFlow() {
                 ...it,
                 status: "done",
                 summary: ev.summary,
+                classification: ev.agent === "classifier" ? ev.classification : undefined,
                 fields: ev.agent === "reader" ? ev.fields : undefined,
                 audit: ev.agent === "auditor" ? ev.audit : undefined,
                 form: ev.agent === "formFiller" ? ev.form : undefined,
@@ -174,7 +190,7 @@ export default function ClaimFlow() {
   }
 
   async function startClaim() {
-    if (!file || running) return;
+    if (!file || running || !designation.trim()) return;
     setRunning(true);
     setItems([]);
     setResult(null);
@@ -198,6 +214,7 @@ export default function ClaimFlow() {
     try {
       const body = new FormData();
       body.append("receipt", file);
+      body.append("designation", designation.trim());
       arm();
       const res = await fetch("/api/claim", {
         method: "POST",
@@ -289,9 +306,27 @@ export default function ClaimFlow() {
                 }}
               />
             </label>
+            <div>
+              <label className="block text-sm text-slate-300" htmlFor="designation">
+                Your designation <span className="text-red-300">*</span>
+              </label>
+              <input
+                id="designation"
+                type="text"
+                maxLength={60}
+                value={designation}
+                onChange={(e) => saveDesignation(e.target.value)}
+                placeholder="e.g. Software Engineer"
+                disabled={running}
+                className="mt-2 w-full rounded-lg border border-slate-600 bg-black/40 px-4 py-2 text-slate-100 outline-none focus:border-cyan-400"
+              />
+              <div className="mt-1 text-xs text-slate-500">
+                Printed on the form. Remembered in this browser.
+              </div>
+            </div>
             <button
               onClick={startClaim}
-              disabled={!file || running}
+              disabled={!file || running || !designation.trim()}
               className="rounded-lg bg-gradient-to-r from-cyan-500 to-violet-500 px-6 py-3 font-semibold text-black shadow-[0_0_24px_rgba(34,211,238,0.35)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
             >
               {running ? "Agents at work…" : "▶ Start Claim"}
@@ -363,7 +398,9 @@ export default function ClaimFlow() {
                     collapsible={
                       it.agent === "dispatcher" ||
                       (it.agent === "formFiller" && has("dispatcher")) ||
-                      ((it.agent === "reader" || it.agent === "auditor") &&
+                      ((it.agent === "classifier" ||
+                        it.agent === "reader" ||
+                        it.agent === "auditor") &&
                         it.audit?.verdict !== "needs_reread" &&
                         has("formFiller"))
                     }
@@ -388,7 +425,7 @@ export default function ClaimFlow() {
               <div className="mt-1 text-sm text-slate-300">{error.hint}</div>
               <button
                 onClick={startClaim}
-                disabled={running || !file}
+                disabled={running || !file || !designation.trim()}
                 className="mt-4 rounded-lg border border-red-400/60 bg-red-400/10 px-5 py-2 text-sm font-semibold text-red-200 transition hover:bg-red-400/20 disabled:opacity-40"
               >
                 ↻ Try again
@@ -431,7 +468,7 @@ export default function ClaimFlow() {
   );
 }
 
-const TRACK = ["reader", "auditor", "formFiller", "dispatcher"] as const;
+const TRACK = ["classifier", "reader", "auditor", "formFiller", "dispatcher"] as const;
 type TrackState = "standby" | "working" | "done" | "warn" | "bad";
 
 function trackState(items: Item[], agent: AgentName): TrackState {
@@ -443,8 +480,45 @@ function trackState(items: Item[], agent: AgentName): TrackState {
   if (last.status === "failed") return "bad";
   if (last.status === "working") return "working";
   if (last.audit?.verdict === "needs_reread") return "warn";
-  if (last.audit?.verdict === "rejected") return "bad";
+  if (last.audit?.verdict === "rejected" || notRecognised(last.classification)) return "bad";
   return "done";
+}
+
+function notRecognised(c?: Classification): boolean {
+  return !!c && (c.type === "unknown" || c.confidence < POLICY.minClassifyConfidence);
+}
+
+function ClassificationView({ c }: { c: Classification }) {
+  const pct = Math.round(c.confidence * 100);
+  const lv = level(pct);
+  const bad = notRecognised(c);
+  return (
+    <div className="mt-4 rounded-xl border border-slate-700/70 bg-black/30 p-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <span
+          className={`rounded-md border px-3 py-1 font-mono text-sm font-semibold ${
+            bad
+              ? "border-red-400/60 bg-red-400/10 text-red-200"
+              : "border-cyan-400/60 bg-cyan-400/10 text-cyan-100"
+          }`}
+        >
+          {bad
+            ? "UNRECOGNISED"
+            : c.type === "gym"
+              ? "HEALTH CLUB RECEIPT"
+              : "INTERNET BILL"}
+        </span>
+        <span className="flex items-center gap-1.5 text-xs text-slate-400">
+          <span
+            className="inline-block h-1.5 w-1.5 rounded-full"
+            style={{ background: lv.hex, boxShadow: `0 0 6px ${lv.hex}` }}
+          />
+          {pct}% sure
+        </span>
+      </div>
+      {c.reason && <p className="mt-3 text-sm text-slate-300">{c.reason}</p>}
+    </div>
+  );
 }
 
 function Tracker({ items }: { items: Item[] }) {
@@ -644,7 +718,7 @@ function AgentCard({
       ? "working"
       : verdict === "needs_reread"
         ? "warn"
-        : verdict === "rejected"
+        : verdict === "rejected" || notRecognised(item.classification)
           ? "bad"
           : "done";
   const cardClass =
@@ -722,6 +796,9 @@ function AgentCard({
         </div>
       )}
 
+      {item.status === "done" && !collapsed && item.classification && (
+        <ClassificationView c={item.classification} />
+      )}
       {item.status === "done" && !collapsed && item.fields && (
         <FieldsTable fields={item.fields} />
       )}
@@ -748,7 +825,8 @@ function level(pct: number) {
 }
 
 function FieldsTable({ fields }: { fields: ReaderResult }) {
-  const scores = RECEIPT_FIELDS.map((k) => fields[k].confidence);
+  const keys = Object.keys(fields);
+  const scores = keys.map((k) => fields[k].confidence);
   const overall = Math.round(
     (scores.reduce((a, b) => a + b, 0) / scores.length) * 100,
   );
@@ -776,14 +854,14 @@ function FieldsTable({ fields }: { fields: ReaderResult }) {
             {overallLevel.label} confidence
           </div>
           <div className="text-xs text-slate-400">
-            Average across all {RECEIPT_FIELDS.length} extracted fields
+            Average across all {keys.length} extracted fields
           </div>
         </div>
       </div>
 
       {/* Per-field results */}
       <div className="grid gap-3 sm:grid-cols-2">
-        {RECEIPT_FIELDS.map((key) => {
+        {keys.map((key) => {
           const f = fields[key];
           const pct = Math.round(f.confidence * 100);
           const lv = level(pct);
@@ -793,7 +871,7 @@ function FieldsTable({ fields }: { fields: ReaderResult }) {
               className="rounded-xl border border-slate-700/70 bg-black/30 p-3"
             >
               <div className="text-xs uppercase tracking-wider text-slate-400">
-                {FIELD_LABELS[key]}
+                {labelOf(key)}
               </div>
               <div className="mt-0.5 truncate text-base font-semibold">
                 {f.value ?? "Not found"}
@@ -840,9 +918,9 @@ function AuditChecks({ audit }: { audit: AuditResult }) {
             className="flex items-start gap-3 rounded-lg border border-slate-700/70 bg-black/30 px-3 py-2"
           >
             <span
-              className={`mt-0.5 font-mono font-bold ${c.passed ? "text-emerald-400" : "text-red-400"}`}
+              className={`mt-0.5 font-mono font-bold ${c.note ? "text-amber-400" : c.passed ? "text-emerald-400" : "text-red-400"}`}
             >
-              {c.passed ? "✓" : "✕"}
+              {c.note ? "!" : c.passed ? "✓" : "✕"}
             </span>
             <div>
               <div className="text-sm font-medium">{c.label}</div>
@@ -927,7 +1005,7 @@ function LoopBanner({ item }: { item: LoopItem }) {
           Auditor sent the receipt back to the Reader
         </div>
         <div className="text-sm text-amber-100/80">
-          Re-reading: {item.fields.map((f) => FIELD_LABELS[f]).join(", ")} (retry{" "}
+          Re-reading: {item.fields.map(labelOf).join(", ")} (retry{" "}
           {item.attempt})
         </div>
       </div>

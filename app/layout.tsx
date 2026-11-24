@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "ClaimCrew",
-  description: "Four agents. One receipt. Zero paperwork.",
+  description: "Five agents. One receipt. Zero paperwork.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

@@ -37,6 +37,22 @@ export async function POST(request: Request) {
     return Response.json({ error: "Receipt must be 5 MB or smaller" }, { status: 413 });
   }
 
+  // Designation is printed on the health club form, so every claim needs it.
+  const designation = String(form.get("designation") ?? "")
+    // The PDF font only supports Latin characters.
+    .replace(/[^\x20-\x7E\u00A0-\u00FF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!designation) {
+    return Response.json({ error: "Please enter your designation." }, { status: 400 });
+  }
+  if (designation.length > 60) {
+    return Response.json(
+      { error: "Designation must be 60 characters or fewer." },
+      { status: 400 },
+    );
+  }
+
   // Stream one JSON event per line so the UI can show each agent working live.
   const encoder = new TextEncoder();
   let closed = false;
@@ -59,7 +75,7 @@ export async function POST(request: Request) {
         emit(event);
       };
       try {
-        await runClaimPipeline(receipt, track);
+        await runClaimPipeline(receipt, designation, track);
       } catch (e) {
         console.error("Claim pipeline failed:", e);
         const { message, hint } = describeError(e);

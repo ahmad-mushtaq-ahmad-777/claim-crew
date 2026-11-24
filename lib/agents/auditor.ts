@@ -5,38 +5,11 @@ import type {
   ReaderResult,
   ReceiptFieldName,
 } from "@/lib/claim-types";
+import { FIELD_LABELS, reimbursableAmount, type ClaimConfig } from "@/lib/claim-configs";
 import { chatCompletion, isMockMode } from "@/lib/llm";
 import { POLICY } from "@/lib/policy";
 
-// Fields that must be read reliably before a claim can be judged.
-const REQUIRED_FIELDS: ReceiptFieldName[] = [
-  "beneficiary",
-  "serviceProvider",
-  "date",
-  "natureOfExpense",
-  "amount",
-];
-
-const INTERNET_KEYWORDS = [
-  "internet",
-  "broadband",
-  "wifi",
-  "wi-fi",
-  "fiber",
-  "fibre",
-  "data",
-  "package",
-  "dsl",
-];
-
-const FIELD_LABELS: Record<ReceiptFieldName, string> = {
-  beneficiary: "beneficiary",
-  serviceProvider: "service provider",
-  date: "date",
-  month: "month",
-  natureOfExpense: "nature of expense",
-  amount: "amount",
-};
+const labelOf = (f: string) => (FIELD_LABELS[f] ?? f).toLowerCase();
 
 function yearOf(value: string | number | null): number | null {
   if (value === null) return null;
@@ -44,14 +17,17 @@ function yearOf(value: string | number | null): number | null {
   return match ? Number(match[0]) : null;
 }
 
-function looksLikeInternetBill(fields: ReaderResult): boolean {
-  const text = `${fields.natureOfExpense.value ?? ""} ${fields.serviceProvider.value ?? ""}`.toLowerCase();
-  return INTERNET_KEYWORDS.some((k) => text.includes(k));
+function matchesExpenseType(fields: ReaderResult, config: ClaimConfig): boolean {
+  const text = config.expense.textFields
+    .map((f) => String(fields[f]?.value ?? ""))
+    .join(" ")
+    .toLowerCase();
+  return config.expense.keywords.some((k) => text.includes(k));
 }
 
 // Rule checks are plain code so the verdict is always consistent and explainable.
-function runChecks(fields: ReaderResult, today: Date) {
-  const lowFields = REQUIRED_FIELDS.filter(
+function runChecks(fields: ReaderResult, config: ClaimConfig, today: Date) {
+  const lowFields = config.required.filter(
     (f) =>
       fields[f].value === null || fields[f].confidence < POLICY.minConfidence,
   );
@@ -63,7 +39,7 @@ function runChecks(fields: ReaderResult, today: Date) {
     detail:
       lowFields.length === 0
         ? "All required fields were read with enough confidence."
-        : `Unclear or missing: ${lowFields.map((f) => FIELD_LABELS[f]).join(", ")}.`,
+        : `Unclear or missing: ${lowFields.map(labelOf).join(", ")}.`,
   };
 
   const receiptYear = yearOf(fields.date.value);
@@ -80,13 +56,17 @@ function runChecks(fields: ReaderResult, today: Date) {
           : `Receipt year ${receiptYear} is not the current year (${currentYear}).`,
   };
 
+  const shown = config.expense.textFields
+    .map((f) => fields[f]?.value)
+    .filter((v) => v !== null && v !== undefined && v !== "")
+    .join(", ");
   const expenseType: AuditCheck = {
     id: "expenseType",
-    label: "Expense is an internet bill",
-    passed: looksLikeInternetBill(fields),
-    detail: looksLikeInternetBill(fields)
-      ? `"${fields.natureOfExpense.value}" from ${fields.serviceProvider.value} qualifies.`
-      : `"${fields.natureOfExpense.value ?? "unknown"}" is not an internet bill.`,
+    label: config.expense.checkLabel,
+    passed: matchesExpenseType(fields, config),
+    detail: matchesExpenseType(fields, config)
+      ? `"${shown}" qualifies as ${config.expense.failName}.`
+      : `"${shown || "unknown"}" is not ${config.expense.failName}.`,
   };
 
   const amountValue = fields.amount.value;
@@ -100,7 +80,23 @@ function runChecks(fields: ReaderResult, today: Date) {
         : "No valid amount was found on the receipt.",
   };
 
-  return { checks: [confidence, year, expenseType, amount], lowFields };
+  // The cap never blocks a claim: full amounts go on the form and Accounts applies the cap.
+  const checks = [confidence, year, expenseType, amount];
+  if (typeof amountValue === "number" && amountValue > 0) {
+    const reimbursable = reimbursableAmount(amountValue, config);
+    const over = reimbursable > config.monthlyCap;
+    checks.push({
+      id: "cap",
+      label: over ? "Over the monthly cap (note)" : "Within the monthly cap",
+      passed: true,
+      note: over,
+      detail: over
+        ? `Reimbursable amount ${reimbursable.toLocaleString("en-US")} is over the monthly cap of ${config.monthlyCap.toLocaleString("en-US")}. Full amounts are written on the form and Accounts will apply the cap.`
+        : `Reimbursable amount ${reimbursable.toLocaleString("en-US")} is within the monthly cap of ${config.monthlyCap.toLocaleString("en-US")}.`,
+    });
+  }
+
+  return { checks, lowFields };
 }
 
 function decideVerdict(
@@ -113,7 +109,8 @@ function decideVerdict(
 
 function templatedReason(verdict: AuditVerdict, checks: AuditCheck[]): string {
   if (verdict === "approved") {
-    return "All checks passed. This claim is ready to be filled in and sent to Accounts.";
+    const capNote = checks.find((c) => c.note)?.detail;
+    return `All checks passed. This claim is ready to be filled in and sent to Accounts.${capNote ? ` Note: ${capNote}` : ""}`;
   }
   const failed = checks.filter((c) => !c.passed).map((c) => c.detail);
   if (verdict === "needs_reread") {
@@ -137,7 +134,7 @@ async function writeReason(
           {
             role: "system",
             content:
-              "You are the Auditor agent in an expense-claim system. Given the verdict and check results, write 1-2 plain sentences for the employee explaining the outcome. If rejected, state the exact reason and what they could do. Do not invent facts or policy.",
+              "You are the Auditor agent in an expense-claim system. Given the verdict and check results, write 1-2 plain sentences for the employee explaining the outcome. If rejected, state the exact reason and what they could do. If a check has note: true, it is a heads-up that does not block the claim, so mention it briefly. Do not invent facts or policy.",
           },
           { role: "user", content: JSON.stringify({ verdict, checks }) },
         ],
@@ -154,9 +151,10 @@ async function writeReason(
 
 export async function runAuditor(
   fields: ReaderResult,
+  config: ClaimConfig,
   today: Date = new Date(),
 ): Promise<AuditResult> {
-  const { checks, lowFields } = runChecks(fields, today);
+  const { checks, lowFields } = runChecks(fields, config, today);
   const verdict = decideVerdict(checks, lowFields);
   return {
     agent: "auditor",
