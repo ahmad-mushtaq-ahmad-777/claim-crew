@@ -3,7 +3,7 @@ import { runReader } from "@/lib/agents/reader";
 import { CLAIM_CONFIGS } from "@/lib/claim-configs";
 import { isMockMode } from "@/lib/llm";
 
-const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
+const MAX_BYTES = 4 * 1024 * 1024; // 4 MB
 const ALLOWED_TYPES = [
   "image/jpeg",
   "image/png",
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
     );
   }
   if (receipt.size > MAX_BYTES) {
-    return Response.json({ error: "Receipt must be 5 MB or smaller" }, { status: 413 });
+    return Response.json({ error: "Receipt must be 4 MB or smaller" }, { status: 413 });
   }
 
   if (isMockMode()) {

@@ -4,8 +4,8 @@ import { accountsAddress, sendMail } from "@/lib/mailer";
 
 export const maxDuration = 60;
 
-const MAX_RECEIPT_BYTES = 5 * 1024 * 1024;
-const MAX_PDF_BASE64 = 2 * 1024 * 1024;
+const MAX_RECEIPT_BYTES = 4 * 1024 * 1024;
+const MAX_PDF_BASE64 = 512 * 1024; // keeps receipt + form under Vercel's 4.5 MB body cap
 const ALLOWED_TYPES = [
   "image/jpeg",
   "image/png",
@@ -70,7 +70,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "The receipt file is missing or not allowed." }, { status: 400 });
   }
   if (receipt.size > MAX_RECEIPT_BYTES) {
-    return Response.json({ error: "Receipt must be 5 MB or smaller." }, { status: 413 });
+    return Response.json({ error: "Receipt must be 4 MB or smaller." }, { status: 413 });
   }
   if (!pdfBase64 || pdfBase64.length > MAX_PDF_BASE64) {
     return Response.json({ error: "The expense sheet is missing or too large." }, { status: 400 });

@@ -4,7 +4,13 @@ ClaimCrew is a multi-agent receipt-to-reimbursement demo built for the SSI Agent
 
 Live demo: https://claim-crew.vercel.app/
 
-The demo uses made-up sample data only. Emails are sent only after the user reviews the draft and clicks Approve & Send.
+Emails are sent only after the user reviews the draft and clicks Approve & Send.
+
+## Business value
+
+**Who benefits:** Employees filing reimbursement claims at SSI (or any client with similar policy forms), and the Accounts team that processes those claims.
+
+Filing an expense claim today means filling out forms and writing emails by hand. With ClaimCrew, an employee uploads a receipt and the app checks it against company rules, fills in the form and writes the email, and they only click approve. Accounts get complete, consistent claims with fewer mistakes and fewer follow-up emails. (Demo uses made-up data only.)
 
 ## 5-Agent Flow
 
@@ -27,7 +33,7 @@ The demo uses made-up sample data only. Emails are sent only after the user revi
 
 ## Try It
 
-Sample receipts (all made-up) are on the landing page, covering a clean claim, retry then reject, retry then recover, and an immediate reject. Receipts can be dragged in (JPG, PNG, WebP, HEIC or PDF, up to 5 MB), and a running claim can be stopped.
+Sample receipts (all made-up) are on the landing page, covering a clean claim, retry then reject, retry then recover, and an immediate reject. Receipts can be dragged in (JPG, PNG, WebP, HEIC or PDF, up to 4 MB), and a running claim can be stopped.
 
 ## Stack
 
@@ -51,8 +57,9 @@ Create `.env.local` for local development and set the same values in Vercel for 
 | `LLM_FALLBACK_MODELS` | Comma-separated models tried if the primary fails |
 | `MOCK_LLM` | `true` runs the pipeline with canned output and no LLM calls |
 | `GMAIL_USER` | Gmail address used to send |
-| `GMAIL_APP_PASSWORD` | Gmail app password. Also used as the draft-signing key |
+| `GMAIL_APP_PASSWORD` | Gmail app password |
 | `ACCOUNTS_EMAIL` | Demo mailbox that receives claims |
+| `DRAFT_SIGNING_SECRET` | Random secret used to sign email drafts (not sent to the client). Generate one and set it in Vercel and `.env.local` |
 
 ## Run Locally
 

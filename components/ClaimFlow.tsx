@@ -72,7 +72,7 @@ const ALLOWED_TYPES = [
   "image/heif",
   "application/pdf",
 ];
-const MAX_RECEIPT_BYTES = 5 * 1024 * 1024;
+const MAX_RECEIPT_BYTES = 4 * 1024 * 1024;
 
 // The user's designation is remembered in the browser so it is typed only once.
 const DESIGNATION_KEY = "claimcrew-designation";
@@ -315,7 +315,7 @@ export default function ClaimFlow() {
         finished = true;
         setError({
           message: data?.error ?? "The agents could not start.",
-          hint: "Check that your file is a JPG, PNG, WebP, HEIC or PDF under 5 MB, then try again.",
+          hint: "Check that your file is a JPG, PNG, WebP, HEIC or PDF under 4 MB, then try again.",
         });
         return;
       }
@@ -416,7 +416,7 @@ export default function ClaimFlow() {
       return;
     }
     if (f.size > MAX_RECEIPT_BYTES) {
-      setFileError("That file is over 5 MB. Please use a smaller one.");
+      setFileError("That file is over 4 MB. Please use a smaller one.");
       return;
     }
     setFileError(null);
@@ -467,7 +467,7 @@ export default function ClaimFlow() {
                 ? "Drop it here"
                 : file
                   ? "Drop a new receipt or click to change"
-                  : "Drag a receipt here or click to choose (JPG, PNG, WebP, HEIC or PDF, up to 5 MB)"}
+                  : "Drag a receipt here or click to choose (JPG, PNG, WebP, HEIC or PDF, up to 4 MB)"}
               <input
                 type="file"
                 accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"

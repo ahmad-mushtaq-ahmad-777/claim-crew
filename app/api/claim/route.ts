@@ -5,7 +5,7 @@ import { runClaimPipeline } from "@/lib/orchestrator";
 // Allow the multi-agent run (with retries) to take up to 2 minutes.
 export const maxDuration = 120;
 
-const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
+const MAX_BYTES = 4 * 1024 * 1024; // 4 MB
 const ALLOWED_TYPES = [
   "image/jpeg",
   "image/png",
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     );
   }
   if (receipt.size > MAX_BYTES) {
-    return Response.json({ error: "Receipt must be 5 MB or smaller" }, { status: 413 });
+    return Response.json({ error: "Receipt must be 4 MB or smaller" }, { status: 413 });
   }
 
   // Designation is printed on the health club form, so every claim needs it.
