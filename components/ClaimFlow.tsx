@@ -138,7 +138,7 @@ const AGENT_META = {
     name: "Dispatcher",
     icon: "D",
     role: "Comms · drafts the email to Accounts",
-    blurb: "Drafts the email to Accounts with the receipt and the filled form attached.",
+    blurb: "Chooses the right channel tool and drafts the signed email to Accounts with the receipt and the filled form attached.",
   },
 } as const;
 

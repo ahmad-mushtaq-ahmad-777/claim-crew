@@ -3,6 +3,8 @@ import { canEnhance, runReader } from "@/lib/agents/reader";
 import { CLAIM_CONFIGS, type ClaimConfig } from "@/lib/claim-configs";
 import { runAuditor } from "@/lib/agents/auditor";
 import { runDispatcher } from "@/lib/agents/dispatcher";
+import type { Channel } from "@/lib/tools/dispatch-tools";
+import type { OutputFormat } from "@/lib/tools/form-tools";
 import { runFormFiller } from "@/lib/agents/form-filler";
 import type {
   AuditResult,
@@ -22,6 +24,11 @@ import { POLICY } from "@/lib/policy";
 type Emit = (event: PipelineEvent) => void;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// What the orchestrator asks the Form Filler and the Dispatcher to produce. The agents pick
+// the matching tool, so supporting Word or Slack later means adding a tool and changing these.
+const OUTPUT_FORMAT: OutputFormat = "pdf";
+const CHANNEL: Channel = "email";
 
 async function readReceipt(
   file: File,
@@ -236,7 +243,7 @@ export async function runClaimPipeline(
       note: `Filling in the ${config.formName}`,
     });
     if (isMockMode()) await sleep(900); // keep the live UI visible in mock mode
-    form = await runFormFiller(fields, config, designation);
+    form = await runFormFiller(fields, config, designation, OUTPUT_FORMAT);
     trace.push({
       agent: "formFiller",
       title: "Form Filler completed the expense sheet",
@@ -261,7 +268,7 @@ export async function runClaimPipeline(
       note: "Drafting the email to Accounts with both attachments",
     });
     if (isMockMode()) await sleep(900);
-    draft = await runDispatcher(fields, form, file.name || "receipt", config, designation);
+    draft = await runDispatcher(fields, form, file.name || "receipt", config, designation, CHANNEL);
     trace.push({
       agent: "dispatcher",
       title: "Dispatcher drafted the email to Accounts",
