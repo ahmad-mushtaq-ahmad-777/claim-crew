@@ -131,8 +131,8 @@ const AGENT_META = {
   formFiller: {
     name: "Form Filler",
     icon: "F",
-    role: "Document · fills the expense sheet",
-    blurb: "Fills in the right company expense sheet and works out the reimbursable amount.",
+    role: "Tools · fills the expense sheet",
+    blurb: "Chooses the right document tool and fills in the company expense sheet. The tool works out the reimbursable amount.",
   },
   dispatcher: {
     name: "Dispatcher",
@@ -954,6 +954,11 @@ function Badge({
   );
 }
 
+// Friendly names for the tools the Form Filler can choose.
+const TOOL_LABELS: Record<string, string> = {
+  generate_form_pdf: "PDF form generator",
+};
+
 function AgentCard({
   item,
   collapsible,
@@ -1031,6 +1036,19 @@ function AgentCard({
           </button>
         )}
       </div>
+
+      {/* Shown whether the card is open or collapsed */}
+      {item.status === "done" && item.form?.toolCall && (
+        <div className="mt-3 flex items-center gap-2 text-base text-slate-300">
+          <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-cyan-300 shadow-[0_0_10px_rgba(103,232,249,0.9)]" />
+          <span>
+            Chose tool:{" "}
+            <span className="font-semibold text-cyan-200">
+              {TOOL_LABELS[item.form.toolCall.name] ?? item.form.toolCall.name}
+            </span>
+          </span>
+        </div>
+      )}
 
       {collapsed && item.summary && (
         <div className="mt-3 text-base text-slate-400">{item.summary}</div>

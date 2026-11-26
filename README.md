@@ -17,7 +17,7 @@ Filing an expense claim today means filling out forms and writing emails by hand
 1. **Classifier** decides whether the receipt is an internet bill, a health club receipt, or an unsupported document.
 2. **Reader** extracts the required fields for the detected claim type. If required fields are missing or low-confidence, it retries with a focused re-read.
 3. **Auditor** checks the extracted claim against policy, including confidence, year, expense type, amount, and claim-type caps.
-4. **Form Filler** generates the completed reimbursement PDF for the detected claim type.
+4. **Form Filler** is a tool-calling agent. It is told the requested output format (PDF today), the model picks and calls the matching tool, and the tool fills in the company form and works out the reimbursable amount. A bad or missing tool call is retried once, then the claim stops with a clear error. New formats (Word, Excel) are added by registering one more tool in `lib/tools/form-tools.ts`.
 5. **Dispatcher** drafts the Accounts email and signs the draft so only approved drafts can be sent.
 
 ## Policy and Retry Loop

@@ -43,6 +43,12 @@ export function describeError(e: unknown): { message: string; hint: string } {
   }
   if (e instanceof Error) {
     const msg = e.message;
+    if (msg.startsWith("The Form Filler could not produce the form")) {
+      return {
+        message: "The Form Filler could not produce the form.",
+        hint: "The AI model did not call the form tool correctly, even after a retry. Please try again.",
+      };
+    }
     if (msg.includes("DRAFT_SIGNING_SECRET")) {
       return {
         message: "The app can't sign the email draft yet.",

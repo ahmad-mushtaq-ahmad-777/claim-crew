@@ -70,6 +70,8 @@ export type EmailDraft = {
 export type FilledForm = {
   filename: string;
   pdfBase64: string;
+  // The tool the Form Filler chose and the arguments it called it with.
+  toolCall?: { name: string; arguments: Record<string, unknown> };
 };
 
 export type TraceStep = {
