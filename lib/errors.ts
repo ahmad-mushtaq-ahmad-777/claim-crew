@@ -49,6 +49,12 @@ export function describeError(e: unknown): { message: string; hint: string } {
         hint: "The AI model did not call the form tool correctly, even after a retry. Please try again.",
       };
     }
+    if (msg.startsWith("The Dispatcher could not prepare the message")) {
+      return {
+        message: "The Dispatcher could not prepare the email.",
+        hint: "The AI model did not call the email tool correctly, even after a retry. Please try again.",
+      };
+    }
     if (msg.includes("DRAFT_SIGNING_SECRET")) {
       return {
         message: "The app can't sign the email draft yet.",

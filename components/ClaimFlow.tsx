@@ -954,9 +954,10 @@ function Badge({
   );
 }
 
-// Friendly names for the tools the Form Filler can choose.
+// Friendly names for the tools the Form Filler and Dispatcher can choose.
 const TOOL_LABELS: Record<string, string> = {
   generate_form_pdf: "PDF form generator",
+  draft_claim_email: "Email drafter",
 };
 
 function AgentCard({
@@ -1038,13 +1039,14 @@ function AgentCard({
       </div>
 
       {/* Shown whether the card is open or collapsed */}
-      {item.status === "done" && item.form?.toolCall && (
+      {item.status === "done" && (item.form?.toolCall ?? item.draft?.toolCall) && (
         <div className="mt-3 flex items-center gap-2 text-base text-slate-300">
           <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-cyan-300 shadow-[0_0_10px_rgba(103,232,249,0.9)]" />
           <span>
             Chose tool:{" "}
             <span className="font-semibold text-cyan-200">
-              {TOOL_LABELS[item.form.toolCall.name] ?? item.form.toolCall.name}
+              {TOOL_LABELS[(item.form?.toolCall ?? item.draft?.toolCall)!.name] ??
+                (item.form?.toolCall ?? item.draft?.toolCall)!.name}
             </span>
           </span>
         </div>

@@ -64,6 +64,8 @@ export type EmailDraft = {
   attachments: { label: string; filename: string }[];
   // HMAC over subject, body and the PDF, so only this exact draft can be sent.
   signature: string;
+  // The tool the Dispatcher chose and the arguments it called it with.
+  toolCall?: { name: string; arguments: Record<string, unknown> };
 };
 
 // The filled reimbursement form, produced by the Form Filler.

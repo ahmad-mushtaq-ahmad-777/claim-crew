@@ -2,6 +2,7 @@ import type { ClaimConfig } from "@/lib/claim-configs";
 import type { FilledForm, ReaderResult } from "@/lib/claim-types";
 import { generateFormPdf } from "@/lib/form-pdf";
 import { generateHealthClubPdf } from "@/lib/form-pdf-gym";
+import type { AgentTool } from "@/lib/tools/tool-agent";
 
 // Tools the Form Filler agent can call. To support a new output format (Word, Excel...),
 // add one entry to FORM_TOOLS and a matching OutputFormat. The agent picks it up from there.
@@ -15,14 +16,7 @@ export type FormToolContext = {
   designation: string;
 };
 
-export type FormTool = {
-  name: string;
-  outputFormat: OutputFormat;
-  description: string;
-  // JSON schema shown to the model
-  parameters: Record<string, unknown>;
-  execute: (ctx: FormToolContext, args: unknown) => Promise<FilledForm>;
-};
+export type FormTool = AgentTool<FormToolContext, FilledForm> & { kind: OutputFormat };
 
 function safe(part: string): string {
   return part.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -30,7 +24,7 @@ function safe(part: string): string {
 
 const generateFormPdfTool: FormTool = {
   name: "generate_form_pdf",
-  outputFormat: "pdf",
+  kind: "pdf",
   description:
     "Fills in the company reimbursement form for the approved claim and renders it as a PDF. " +
     "Use it whenever the requested output format is pdf. " +
