@@ -1,3 +1,4 @@
+import { CLAIM_CONFIGS } from "@/lib/claim-configs";
 import type { EmailDraft } from "@/lib/claim-types";
 import { buildEmailDraft, type EmailDraftInput } from "@/lib/email-draft";
 import type { AgentTool } from "@/lib/tools/tool-agent";
@@ -22,7 +23,7 @@ const draftClaimEmailTool: DispatchTool = {
     properties: {
       claimType: {
         type: "string",
-        enum: ["internet", "gym"],
+        enum: Object.keys(CLAIM_CONFIGS),
         description: "The type of the claim the email is for.",
       },
     },

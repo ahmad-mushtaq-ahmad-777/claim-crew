@@ -14,8 +14,23 @@ export const FIELD_LABELS: Record<string, string> = {
   healthClub: "Health Club",
 };
 
+// One line of the "Claim details" block in the email. Either a receipt field,
+// or one of two values the code computes (designation, reimbursable amount).
+export type EmailLine =
+  | { label: string; field: string; money?: boolean }
+  | { label: string; special: "designation" }
+  | { label: string; special: "reimbursable"; note: string };
+
 export type ClaimConfig = {
   id: ClaimTypeId;
+  // Wording of the fixed-template email to Accounts.
+  email: {
+    subjectTitle: string; // e.g. "Internet Expense Claim"
+    claimName: string; // e.g. "internet expense claim"
+    details: readonly EmailLine[];
+  };
+  // How the Classifier describes this type, e.g. "an internet service bill or payment receipt".
+  classifyHint: string;
   // Short name used in messages, e.g. "internet bill".
   label: string;
   // What the Reader is told it is looking at.
@@ -52,6 +67,18 @@ export function reimbursableAmount(amount: number, config: ClaimConfig): number 
 
 const internet: ClaimConfig = {
   id: "internet",
+  classifyHint: "an internet / broadband / WiFi service bill or payment receipt",
+  email: {
+    subjectTitle: "Internet Expense Claim",
+    claimName: "internet expense claim",
+    details: [
+      { label: "Employee", field: "beneficiary" },
+      { label: "Service provider", field: "serviceProvider" },
+      { label: "Receipt date", field: "date" },
+      { label: "Nature of expense", field: "natureOfExpense" },
+      { label: "Amount", field: "amount", money: true },
+    ],
+  },
   label: "internet bill",
   documentName: "internet bill receipt",
   formName: "Internet Expense Sheet",
@@ -103,6 +130,20 @@ const internet: ClaimConfig = {
 
 const gym: ClaimConfig = {
   id: "gym",
+  classifyHint: "a gym, fitness or health club membership payment receipt",
+  email: {
+    subjectTitle: "Health Club Expense Claim",
+    claimName: "health club membership expense claim",
+    details: [
+      { label: "Employee", field: "beneficiary" },
+      { label: "Designation", special: "designation" },
+      { label: "Health club", field: "healthClub" },
+      { label: "Receipt date", field: "date" },
+      { label: "Membership month", field: "month" },
+      { label: "Monthly dues", field: "amount", money: true },
+      { label: "Reimbursable", special: "reimbursable", note: "of the dues" },
+    ],
+  },
   label: "health club receipt",
   documentName: "health club (gym) membership payment receipt",
   formName: "Health Club Expense Sheet",

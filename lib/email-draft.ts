@@ -23,8 +23,7 @@ function amountOf(fields: ReaderResult): number | string {
 
 export function buildSubject(fields: ReaderResult, config: ClaimConfig): string {
   const year = val(fields, "date").match(/\b(19|20)\d{2}\b/)?.[0] ?? "";
-  const title = config.id === "gym" ? "Health Club Expense Claim" : "Internet Expense Claim";
-  return `${title} - ${val(fields, "beneficiary")} - ${val(fields, "month")} ${year}`.trim();
+  return `${config.email.subjectTitle} - ${val(fields, "beneficiary")} - ${val(fields, "month")} ${year}`.trim();
 }
 
 // Fixed template per claim type: every email has a consistent layout, and only the
@@ -34,32 +33,24 @@ export function buildBody(
   config: ClaimConfig,
   designation = "",
 ): string {
-  const gym = config.id === "gym";
   const amount = amountOf(fields);
-  const details = gym
-    ? [
-        `  Employee:          ${val(fields, "beneficiary")}`,
-        ...(designation ? [`  Designation:       ${designation}`] : []),
-        `  Health club:       ${val(fields, "healthClub")}`,
-        `  Receipt date:      ${val(fields, "date")}`,
-        `  Membership month:  ${val(fields, "month")}`,
-        `  Monthly dues:      ${money(amount)}`,
-        `  Reimbursable:      ${typeof amount === "number" ? money(reimbursableAmount(amount, config)) : ""} (60% of the dues)`,
-      ]
-    : [
-        `  Employee:          ${val(fields, "beneficiary")}`,
-        `  Service provider:  ${val(fields, "serviceProvider")}`,
-        `  Receipt date:      ${val(fields, "date")}`,
-        `  Nature of expense: ${val(fields, "natureOfExpense")}`,
-        `  Amount:            ${money(amount)}`,
-      ];
+  const line = (label: string, value: string) => `  ${`${label}:`.padEnd(19)}${value}`;
+  const details = config.email.details.flatMap((d): string[] => {
+    if ("special" in d) {
+      if (d.special === "designation") {
+        return designation ? [line(d.label, designation)] : [];
+      }
+      const pct = Math.round(config.reimbursementRate * 100);
+      const value = typeof amount === "number" ? money(reimbursableAmount(amount, config)) : "";
+      return [line(d.label, `${value} (${pct}% ${d.note})`)];
+    }
+    return [line(d.label, d.money ? money(amount) : val(fields, d.field))];
+  });
 
   return [
     "Dear Accounts Team,",
     "",
-    gym
-      ? `Please find attached my health club membership expense claim for the month of ${val(fields, "month")}.`
-      : `Please find attached my internet expense claim for the month of ${val(fields, "month")}.`,
+    `Please find attached my ${config.email.claimName} for the month of ${val(fields, "month")}.`,
     "",
     "Claim details",
     ...details,

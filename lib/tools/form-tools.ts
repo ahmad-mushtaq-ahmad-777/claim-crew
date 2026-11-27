@@ -1,7 +1,6 @@
-import type { ClaimConfig } from "@/lib/claim-configs";
+import { CLAIM_CONFIGS, type ClaimConfig } from "@/lib/claim-configs";
 import type { FilledForm, ReaderResult } from "@/lib/claim-types";
-import { generateFormPdf } from "@/lib/form-pdf";
-import { generateHealthClubPdf } from "@/lib/form-pdf-gym";
+import { FORM_GENERATORS } from "@/lib/form-generators";
 import type { AgentTool } from "@/lib/tools/tool-agent";
 
 // Tools the Form Filler agent can call. To support a new output format (Word, Excel...),
@@ -34,7 +33,7 @@ const generateFormPdfTool: FormTool = {
     properties: {
       claimType: {
         type: "string",
-        enum: ["internet", "gym"],
+        enum: Object.keys(CLAIM_CONFIGS),
         description: "The type of the claim the form is for.",
       },
     },
@@ -48,10 +47,7 @@ const generateFormPdfTool: FormTool = {
         `generate_form_pdf was called with claimType "${String(claimType)}" but this claim is "${config.id}"`,
       );
     }
-    const bytes =
-      config.id === "gym"
-        ? await generateHealthClubPdf(fields, designation)
-        : await generateFormPdf(fields);
+    const bytes = await FORM_GENERATORS[config.id](fields, designation);
     const who = safe(String(fields.beneficiary?.value ?? "employee"));
     const month = safe(String(fields.month?.value ?? "month"));
     return {

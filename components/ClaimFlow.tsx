@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { draftToHtml } from "@/lib/email-html";
-import { FIELD_LABELS } from "@/lib/claim-configs";
+import { CLAIM_CONFIGS, FIELD_LABELS } from "@/lib/claim-configs";
 import { POLICY } from "@/lib/policy";
 import {
   type AgentName,
   type AuditResult,
   type Classification,
   type ClaimResponse,
+  type ClaimTypeId,
   type EmailDraft,
   type FilledForm,
   type PipelineEvent,
@@ -750,9 +751,7 @@ function ClassificationView({ c }: { c: Classification }) {
         >
           {bad
             ? "UNRECOGNISED"
-            : c.type === "gym"
-              ? "HEALTH CLUB RECEIPT"
-              : "INTERNET BILL"}
+            : CLAIM_CONFIGS[c.type as ClaimTypeId].label.toUpperCase()}
         </span>
         <span className="flex items-center gap-1.5 text-sm text-slate-400">
           <span

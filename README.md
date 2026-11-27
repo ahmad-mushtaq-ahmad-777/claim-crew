@@ -12,6 +12,56 @@ Emails are sent only after the user reviews the draft and clicks Approve & Send.
 
 Filing an expense claim today means filling out forms and writing emails by hand. With ClaimCrew, an employee uploads a receipt and the app checks it against company rules, fills in the form and writes the email, and they only click approve. Accounts get complete, consistent claims with fewer mistakes and fewer follow-up emails. (Demo uses made-up data only.)
 
+## Architecture
+
+```mermaid
+flowchart TD
+    U["Browser: upload receipt"] --> API["/api/claim"]
+    API --> ORCH["Orchestrator (deterministic code)"]
+
+    CFG[("Claim configs<br/>fields, policy, rate, cap,<br/>classifier hint, email wording")]
+
+    ORCH --> C["1. Classifier (LLM vision)"]
+    C -- "unknown type" --> STOP["Stop: unsupported document"]
+    C --> R["2. Reader (LLM vision)"]
+    R --> A["3. Auditor (LLM + tools)<br/>run_policy_checks, then<br/>approve / request_reread / reject"]
+    A -- "request_reread (max 2 retries)" --> R
+    A -- "reject (failed check or no re-reads left)" --> REJ["Claim rejected with the Auditor's reason"]
+    A -- approve --> F["4. Form Filler (LLM + tool)<br/>generate_form_pdf"]
+    F --> D["5. Dispatcher (LLM + tool)<br/>draft_claim_email"]
+    D --> REVIEW["Employee reviews the draft"]
+    REVIEW --> SEND["/api/send<br/>verify signature, rate limit"]
+    SEND --> MAIL["Gmail SMTP to Accounts"]
+
+    ERR["Error: claim stops with a clear message"]
+    C -.-> ERR
+    R -.-> ERR
+    A -.-> ERR
+    F -.-> ERR
+    D -.-> ERR
+
+    CFG -.-> C
+    CFG -.-> R
+    CFG -.-> A
+    CFG -.-> F
+    CFG -.-> D
+
+    classDef llm fill:#e8f0ff,stroke:#4a6fdc,color:#111;
+    classDef code fill:#f3f3f3,stroke:#888,color:#111;
+    classDef data fill:#f1e8ff,stroke:#8a5cd6,color:#111;
+    classDef stop fill:#fdeaea,stroke:#d65c5c,color:#111;
+    classDef user fill:#e9f7ec,stroke:#4aa564,color:#111;
+    class C,R,A,F,D llm;
+    class ORCH,API,SEND code;
+    class CFG data;
+    class STOP,REJ,ERR stop;
+    class U,REVIEW,MAIL user;
+```
+
+Blue boxes are LLM agents, grey boxes are plain code, purple is the claim config data, red are end states where no claim is sent, and green are the employee and the mailbox. Dotted lines to the error node mean any agent that still fails after one retry (a bad tool call or a model failure) stops the claim with a clear error, with no silent fallback. The LLM perceives and decides, and code owns policy and money: tools validate every action, and the email is a fixed template signed in code so only the reviewed draft can be sent.
+
+**Adding a claim type:** each claim type is one config entry (fields, policy, rate, cap, classifier hint, email wording) plus one form template registered in `lib/form-generators.ts`. The Classifier prompt, tool schemas, Reader, Auditor and email pick it up from the config, so the agents and policy checks need no changes.
+
 ## 5-Agent Flow
 
 1. **Classifier** decides whether the receipt is an internet bill, a health club receipt, or an unsupported document.

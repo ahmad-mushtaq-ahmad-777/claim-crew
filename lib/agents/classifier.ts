@@ -1,12 +1,15 @@
+import { CLAIM_CONFIGS } from "@/lib/claim-configs";
 import type { Classification, ClaimTypeId } from "@/lib/claim-types";
 import { chatCompletion } from "@/lib/llm";
 
-const TYPES: (ClaimTypeId | "unknown")[] = ["internet", "gym", "unknown"];
+const IDS = Object.keys(CLAIM_CONFIGS) as ClaimTypeId[];
+const TYPES: (ClaimTypeId | "unknown")[] = [...IDS, "unknown"];
+const TYPE_UNION = TYPES.map((t) => `"${t}"`).join("|");
 
+// Built from CLAIM_CONFIGS, so a new claim type is picked up automatically.
 const SYSTEM_PROMPT = `You are the Classifier agent in an expense-claim system.
 You receive one receipt (image or PDF) and decide what kind of claim it is:
-- "internet": an internet / broadband / WiFi service bill or payment receipt
-- "gym": a gym, fitness or health club membership payment receipt
+${IDS.map((id) => `- "${id}": ${CLAIM_CONFIGS[id].classifyHint}`).join("\n")}
 - "unknown": anything else, or you cannot tell
 
 Rules:
@@ -14,7 +17,7 @@ Rules:
 - confidence is a number from 0 to 1 for how sure you are.
 - reason is ONE short sentence on what you saw (provider or club name, what was paid for).
 - Respond with JSON only, in exactly this shape:
-{"type":"internet"|"gym"|"unknown","confidence":0.0,"reason":"..."}`;
+{"type":${TYPE_UNION},"confidence":0.0,"reason":"..."}`;
 
 export function parseClassification(text: string): Classification {
   const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
