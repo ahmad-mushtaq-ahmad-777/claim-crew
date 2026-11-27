@@ -506,7 +506,7 @@ export default function ClaimFlow() {
             {!running && (!file || !designation.trim()) && (
               <div className="-mt-2 text-base text-slate-400">
                 {!file
-                  ? "Choose a receipt or sample first."
+                  ? "Choose a receipt or test scenario first."
                   : "Enter your designation to continue."}
               </div>
             )}
@@ -547,7 +547,7 @@ export default function ClaimFlow() {
                   onClick={clearFile}
                   className="self-start text-base text-cyan-300 underline-offset-4 hover:underline"
                 >
-                  ← Choose a different receipt
+                  ← Choose a different receipt or test scenario
                 </button>
               )}
             </div>
@@ -555,11 +555,12 @@ export default function ClaimFlow() {
 
           {!file && (
             <div className="flex-1">
-              <div className="mb-3 text-base text-slate-300">
-                No receipt handy? Try a sample:
-              </div>
-              {/* Made-up files so the whole flow can be tried in one click */}
+              {/* Made-up files so the whole flow can be tried in one click.
+                  The heading sits inside the box so its top edge lines up with the drop zone. */}
               <div className="flex flex-col divide-y divide-slate-700/60 overflow-hidden rounded-lg border border-slate-700/70">
+                <div className="bg-slate-800/40 px-4 py-3 text-base text-slate-300">
+                  No receipt handy? Try a test scenario: clean claim, retry, or reject.
+                </div>
                 {SAMPLES.map((s) => (
                   <button
                     key={s.file}
