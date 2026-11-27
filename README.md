@@ -16,11 +16,13 @@ Filing an expense claim today means filling out forms and writing emails by hand
 
 1. **Classifier** decides whether the receipt is an internet bill, a health club receipt, or an unsupported document.
 2. **Reader** extracts the required fields for the detected claim type. If required fields are missing or low-confidence, it retries with a focused re-read.
-3. **Auditor** checks the extracted claim against policy, including confidence, year, expense type, amount, and claim-type caps.
+3. **Auditor** is a tool-calling agent. It first calls `run_policy_checks` (plain code that checks confidence, year, expense type, amount and the claim-type cap), reads the results, then decides by calling one tool: `approve_claim`, `request_reread` (naming the fields) or `reject_claim`, with its own reason. The tools enforce the hard rules in code: a claim with a failed check can't be approved, and once re-reads run out the model must reject. The orchestrator then sends a re-read request back to the Reader. Tools live in `lib/tools/audit-tools.ts`.
 4. **Form Filler** is a tool-calling agent. It is told the requested output format (PDF today), the model picks and calls the matching tool, and the tool fills in the company form and works out the reimbursable amount. A bad or missing tool call is retried once, then the claim stops with a clear error. New formats (Word, Excel) are added by registering one more tool in `lib/tools/form-tools.ts`.
 5. **Dispatcher** is also a tool-calling agent. It is told the requested channel (email today), the model picks and calls the matching tool, and the tool builds the fixed-template email to Accounts and signs it so only this exact draft can be sent. The model never writes or edits the email. Same retry-once-then-error rule. Nothing is sent until the employee clicks Approve & Send. New channels (Slack, Teams) are added by registering one more tool in `lib/tools/dispatch-tools.ts`.
 
-The **orchestrator** (`lib/orchestrator.ts`) is deterministic by design: it runs the agents in order, routes on the Classifier's and Auditor's results, runs the Reader-Auditor loop, and tells the Form Filler and Dispatcher which format and channel to produce. Shared tool-calling logic lives in `lib/tools/tool-agent.ts`.
+The **orchestrator** (`lib/orchestrator.ts`) is deterministic by design: it runs the agents in order, routes on the Classifier's and Auditor's results, runs the Reader-Auditor loop, and tells the Form Filler and Dispatcher which format and channel to produce. Shared tool-calling logic lives in `lib/tools/tool-agent.ts`: the model calls a tool, our code validates and runs it (sending results back to the model when the tool is informational), and a bad call is retried once.
+
+**Design principle:** the LLM handles perception and decisions, and code owns policy and money. Each agent's tools enforce the rules (amounts, caps, signatures, allowed actions), so the model chooses within boundaries and can't act outside them. The UI shows each tool the agents chose on their cards.
 
 ## Policy and Retry Loop
 
@@ -30,7 +32,7 @@ The **orchestrator** (`lib/orchestrator.ts`) is deterministic by design: it runs
 | Health club | 60% of monthly dues (rounded to 2 decimals) | 4000 on the 60% share |
 
 - Every extracted field is required, and the receipt must be from the current year. Unrecognised documents are rejected by the Classifier.
-- If a field is missing or low-confidence, the Auditor sends the claim back to the Reader, up to 2 retries. Image retries read a contrast-enhanced copy. After that the claim is rejected.
+- If a field is missing or low-confidence, the Auditor requests a re-read and the claim goes back to the Reader, up to 2 retries. Image retries read a contrast-enhanced copy. On the final pass the Auditor is told no re-reads are left and rejects the claim with its own reason.
 - Over-cap health club claims are still approved. The Auditor adds a note and Accounts applies the cap.
 
 ## Try It

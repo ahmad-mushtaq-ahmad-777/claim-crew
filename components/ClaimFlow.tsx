@@ -126,7 +126,7 @@ const AGENT_META = {
     name: "Auditor",
     icon: "A",
     role: "Policy · verifies the claim",
-    blurb: "Checks the claim against policy and sends unclear reads back to the Reader.",
+    blurb: "Checks the claim against policy, then decides by calling a tool: approve it, send unclear reads back to the Reader, or reject it.",
   },
   formFiller: {
     name: "Form Filler",
@@ -954,11 +954,22 @@ function Badge({
   );
 }
 
-// Friendly names for the tools the Form Filler and Dispatcher can choose.
+// Friendly names for the tools the agents can choose.
 const TOOL_LABELS: Record<string, string> = {
   generate_form_pdf: "PDF form generator",
   draft_claim_email: "Email drafter",
+  run_policy_checks: "Run policy checks",
+  approve_claim: "Approve claim",
+  request_reread: "Request re-read",
+  reject_claim: "Reject claim",
 };
+
+// Every tool call an agent made, in order.
+function toolCallsOf(item: AgentItem): { name: string }[] {
+  if (item.audit?.toolCalls?.length) return item.audit.toolCalls;
+  const single = item.form?.toolCall ?? item.draft?.toolCall ?? item.audit?.toolCall;
+  return single ? [single] : [];
+}
 
 function AgentCard({
   item,
@@ -1038,17 +1049,20 @@ function AgentCard({
         )}
       </div>
 
-      {/* Shown whether the card is open or collapsed */}
-      {item.status === "done" && (item.form?.toolCall ?? item.draft?.toolCall) && (
-        <div className="mt-3 flex items-center gap-2 text-base text-slate-300">
-          <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-cyan-300 shadow-[0_0_10px_rgba(103,232,249,0.9)]" />
-          <span>
-            Chose tool:{" "}
-            <span className="font-semibold text-cyan-200">
-              {TOOL_LABELS[(item.form?.toolCall ?? item.draft?.toolCall)!.name] ??
-                (item.form?.toolCall ?? item.draft?.toolCall)!.name}
-            </span>
-          </span>
+      {/* Tools the agent chose, in order. Shown whether the card is open or collapsed */}
+      {item.status === "done" && toolCallsOf(item).length > 0 && (
+        <div className="mt-3 flex flex-col gap-1.5">
+          {toolCallsOf(item).map((call, i) => (
+            <div key={i} className="flex items-center gap-2 text-base text-slate-300">
+              <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-cyan-300 shadow-[0_0_10px_rgba(103,232,249,0.9)]" />
+              <span>
+                Chose tool:{" "}
+                <span className="font-semibold text-cyan-200">
+                  {TOOL_LABELS[call.name] ?? call.name}
+                </span>
+              </span>
+            </div>
+          ))}
         </div>
       )}
 

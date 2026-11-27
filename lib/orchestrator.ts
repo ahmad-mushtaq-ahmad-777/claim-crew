@@ -156,7 +156,7 @@ export async function runClaimPipeline(
     attempt: 1,
     note: "Checking the claim against company policy",
   });
-  audit = await runAuditor(fields, config);
+  audit = await runAuditor(fields, config, POLICY.maxRetries);
   trace.push({
     agent: "auditor",
     title: `Auditor verdict: ${audit.verdict}`,
@@ -213,7 +213,7 @@ export async function runClaimPipeline(
       attempt: retries + 1,
       note: "Re-checking the claim",
     });
-    audit = await runAuditor(fields, config);
+    audit = await runAuditor(fields, config, POLICY.maxRetries - retries);
     trace.push({
       agent: "auditor",
       title: `Auditor verdict: ${audit.verdict}`,
@@ -228,9 +228,13 @@ export async function runClaimPipeline(
     });
   }
 
-  // Still unclear after all retries: reject with a clear reason.
+  // Safety net: the Auditor is told when re-reads run out and should reject by itself.
   if (audit.verdict === "needs_reread") {
-    audit = { ...audit, verdict: "rejected" };
+    audit = {
+      ...audit,
+      verdict: "rejected",
+      reason: `${audit.reason} Re-reads were tried ${POLICY.maxRetries} times without success, so the claim is rejected.`,
+    };
   }
 
   // --- Form Filler: only for approved claims ---

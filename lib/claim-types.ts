@@ -44,6 +44,10 @@ export type AuditResult = {
   reason: string;
   // Fields the Auditor wants the Reader to re-read (when verdict is needs_reread).
   rereadFields: ReceiptFieldName[];
+  // The final tool the Auditor chose and the arguments it called it with.
+  toolCall?: { name: string; arguments: Record<string, unknown> };
+  // Every tool the Auditor called, in order: run_policy_checks first, then its decision.
+  toolCalls?: { name: string; arguments: Record<string, unknown> }[];
 };
 
 // ---- Orchestration ----

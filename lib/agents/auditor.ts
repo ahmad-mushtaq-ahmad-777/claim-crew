@@ -6,7 +6,9 @@ import type {
   ReceiptFieldName,
 } from "@/lib/claim-types";
 import { FIELD_LABELS, reimbursableAmount, type ClaimConfig } from "@/lib/claim-configs";
-import { chatCompletion, isMockMode } from "@/lib/llm";
+import { isMockMode } from "@/lib/llm";
+import { AUDIT_INFO_TOOLS, AUDIT_TOOLS, type AuditToolContext } from "@/lib/tools/audit-tools";
+import { runToolAgent } from "@/lib/tools/tool-agent";
 import { POLICY } from "@/lib/policy";
 
 const labelOf = (f: string) => (FIELD_LABELS[f] ?? f).toLowerCase();
@@ -25,6 +27,20 @@ function matchesExpenseType(fields: ReaderResult, config: ClaimConfig): boolean 
   return config.expense.keywords.some((k) => text.includes(k));
 }
 
+// Says exactly what is wrong: a field that was not found at all, or one read with low confidence.
+function confidenceDetail(fields: ReaderResult, lowFields: ReceiptFieldName[]): string {
+  const notFound = lowFields.filter((f) => fields[f].value === null);
+  const unsure = lowFields.filter((f) => fields[f].value !== null);
+  const parts: string[] = [];
+  if (notFound.length > 0) {
+    parts.push(`Not found on the receipt: ${notFound.map(labelOf).join(", ")}.`);
+  }
+  if (unsure.length > 0) {
+    parts.push(`Read with low confidence: ${unsure.map(labelOf).join(", ")}.`);
+  }
+  return parts.join(" ");
+}
+
 // Rule checks are plain code so the verdict is always consistent and explainable.
 function runChecks(fields: ReaderResult, config: ClaimConfig, today: Date) {
   const lowFields = config.required.filter(
@@ -39,7 +55,7 @@ function runChecks(fields: ReaderResult, config: ClaimConfig, today: Date) {
     detail:
       lowFields.length === 0
         ? "All required fields were read with enough confidence."
-        : `Unclear or missing: ${lowFields.map(labelOf).join(", ")}.`,
+        : confidenceDetail(fields, lowFields),
   };
 
   const receiptYear = yearOf(fields.date.value);
@@ -119,48 +135,69 @@ function templatedReason(verdict: AuditVerdict, checks: AuditCheck[]): string {
   return `This claim was rejected. ${failed.join(" ")}`;
 }
 
-// The model turns the check results into a short, friendly explanation.
-async function writeReason(
-  verdict: AuditVerdict,
-  checks: AuditCheck[],
-): Promise<string> {
-  const fallback = templatedReason(verdict, checks);
-  if (isMockMode()) return fallback;
-  try {
-    const completion = await chatCompletion(
-      {
-        temperature: 0.2,
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are the Auditor agent in an expense-claim system. Given the verdict and check results, write 1-2 plain sentences for the employee explaining the outcome. If rejected, state the exact reason and what they could do. If a check has note: true, it is a heads-up that does not block the claim, so mention it briefly. Amounts are in Pakistani rupees: always write them as Rs. followed by the number, exactly as given in the checks. Do not invent facts or policy.",
-          },
-          { role: "user", content: JSON.stringify({ verdict, checks }) },
-        ],
-      },
-      // The reason is a nice-to-have, so give up quickly and use the template.
-      { timeout: 15_000, maxModels: 1 },
-    );
-    return completion.choices[0]?.message?.content?.trim() || fallback;
-  } catch (e) {
-    console.error("Auditor reason failed, using template:", e);
-    return fallback;
-  }
-}
-
+// Auditor: a tool-calling agent. It first calls run_policy_checks (plain code, results go back
+// to the model), then decides what to do by calling one tool: approve, re-read or reject.
+// The tools enforce the hard rules, so the model can never approve a claim with a failed check.
 export async function runAuditor(
   fields: ReaderResult,
   config: ClaimConfig,
+  // How many more re-reads the Reader may do. At 0 this is the final pass.
+  retriesLeft: number = POLICY.maxRetries,
   today: Date = new Date(),
 ): Promise<AuditResult> {
-  const { checks, lowFields } = runChecks(fields, config, today);
-  const verdict = decideVerdict(checks, lowFields);
+  // Mock mode runs without any model, so use the rule-based verdict directly.
+  if (isMockMode()) {
+    const { checks, lowFields } = runChecks(fields, config, today);
+    const ruled = decideVerdict(checks, lowFields);
+    const outOfRetries = ruled === "needs_reread" && retriesLeft <= 0;
+    const verdict = outOfRetries ? "rejected" : ruled;
+    const action =
+      verdict === "approved"
+        ? { name: "approve_claim", arguments: {} }
+        : verdict === "needs_reread"
+          ? { name: "request_reread", arguments: { fields: lowFields } }
+          : { name: "reject_claim", arguments: {} };
+    return {
+      agent: "auditor",
+      verdict,
+      checks,
+      reason: outOfRetries
+        ? `${templatedReason("needs_reread", checks)} Re-reads were tried ${POLICY.maxRetries} times without success, so the claim is rejected.`
+        : templatedReason(verdict, checks),
+      rereadFields: verdict === "needs_reread" ? lowFields : [],
+      toolCall: action,
+      toolCalls: [{ name: "run_policy_checks", arguments: {} }, action],
+    };
+  }
+
+  const ctx: AuditToolContext = {
+    config,
+    retriesLeft,
+    evaluate: () => runChecks(fields, config, today),
+  };
+  const { result, toolCall, toolCalls } = await runToolAgent({
+    system:
+      "You are the Auditor agent in an expense-claim system. " +
+      "First call run_policy_checks. Its results are your evidence. Then decide the outcome by calling exactly one of the other tools; do not answer with text. " +
+      "If every check passed, call approve_claim (mention any check marked note briefly). " +
+      "If a required field is unclear or missing and retriesLeft is above 0, a second look often fixes it, so call request_reread. If retriesLeft is 0, re-reads are used up: call reject_claim and say that re-reads were tried without success. A check that failed only because a field was unclear or missing is not a policy violation. " +
+      "Call reject_claim when a policy check failed on a field that was read clearly (wrong year, wrong expense type, no valid amount), or when the receipt is clearly unusable. " +
+      "Use only facts from the checks. Amounts are in Pakistani rupees: write them as Rs. followed by the number, exactly as given in the checks. Do not invent facts or policy.",
+    request: { kind: "audit", claimType: config.id },
+    tools: AUDIT_TOOLS,
+    infoTools: AUDIT_INFO_TOOLS,
+    requireFirst: "run_policy_checks",
+    ctx,
+    failurePrefix: "The Auditor could not reach a decision",
+  });
+
   return {
     agent: "auditor",
-    verdict,
-    checks,
-    reason: await writeReason(verdict, checks),
-    rereadFields: verdict === "needs_reread" ? lowFields : [],
+    verdict: result.verdict,
+    checks: ctx.evaluation!.checks,
+    reason: result.reason,
+    rereadFields: result.rereadFields,
+    toolCall,
+    toolCalls,
   };
 }

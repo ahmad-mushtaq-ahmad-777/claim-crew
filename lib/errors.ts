@@ -49,6 +49,12 @@ export function describeError(e: unknown): { message: string; hint: string } {
         hint: "The AI model did not call the form tool correctly, even after a retry. Please try again.",
       };
     }
+    if (msg.startsWith("The Auditor could not reach a decision")) {
+      return {
+        message: "The Auditor could not reach a decision.",
+        hint: "The AI model did not make a valid decision, even after a retry. Please try again.",
+      };
+    }
     if (msg.startsWith("The Dispatcher could not prepare the message")) {
       return {
         message: "The Dispatcher could not prepare the email.",
