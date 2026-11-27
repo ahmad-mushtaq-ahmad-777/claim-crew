@@ -45,7 +45,8 @@ function confidenceDetail(fields: ReaderResult, lowFields: ReceiptFieldName[]): 
 function runChecks(fields: ReaderResult, config: ClaimConfig, today: Date) {
   const lowFields = config.required.filter(
     (f) =>
-      fields[f].value === null || fields[f].confidence < POLICY.minConfidence,
+      fields[f].value === null ||
+      fields[f].confidence < (POLICY.minConfidenceByField[f] ?? POLICY.minConfidence),
   );
 
   const confidence: AuditCheck = {
