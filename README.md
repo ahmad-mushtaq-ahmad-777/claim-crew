@@ -21,36 +21,35 @@ flowchart TD
 
     CFG[("Claim configs<br/>fields, policy, rate, cap,<br/>classifier hint, email wording")]
 
-    ORCH --> C["1. Classifier (LLM vision)"]
+    subgraph AGENTS["Agent pipeline"]
+        direction TB
+        C["1. Classifier (LLM vision)"]
+        R["2. Reader (LLM vision)"]
+        A["3. Auditor (LLM + tools)<br/>run_policy_checks, then<br/>approve / request_reread / reject"]
+        F["4. Form Filler (LLM + tool)<br/>generate_form_pdf"]
+        D["5. Dispatcher (LLM + tool)<br/>draft_claim_email"]
+    end
+
+    ORCH --> C
     C -- "unknown type" --> STOP["Stop: unsupported document"]
-    C --> R["2. Reader (LLM vision)"]
-    R --> A["3. Auditor (LLM + tools)<br/>run_policy_checks, then<br/>approve / request_reread / reject"]
+    C --> R
+    R --> A
     A -- "request_reread (max 2 retries)" --> R
     A -- "reject (failed check or no re-reads left)" --> REJ["Claim rejected with the Auditor's reason"]
-    A -- approve --> F["4. Form Filler (LLM + tool)<br/>generate_form_pdf"]
-    F --> D["5. Dispatcher (LLM + tool)<br/>draft_claim_email"]
+    A -- approve --> F
+    F --> D
     D --> REVIEW["Employee reviews the draft"]
     REVIEW --> SEND["/api/send<br/>verify signature, rate limit"]
     SEND --> MAIL["Gmail SMTP to Accounts"]
 
-    ERR["Error: claim stops with a clear message"]
-    C -.-> ERR
-    R -.-> ERR
-    A -.-> ERR
-    F -.-> ERR
-    D -.-> ERR
+    AGENTS -. "still failing after 1 retry" .-> ERR["Error: claim stops with a clear message"]
+    CFG -. "drives every agent" .-> AGENTS
 
-    CFG -.-> C
-    CFG -.-> R
-    CFG -.-> A
-    CFG -.-> F
-    CFG -.-> D
-
-    classDef llm fill:#e8f0ff,stroke:#4a6fdc,color:#111;
-    classDef code fill:#f3f3f3,stroke:#888,color:#111;
-    classDef data fill:#f1e8ff,stroke:#8a5cd6,color:#111;
-    classDef stop fill:#fdeaea,stroke:#d65c5c,color:#111;
-    classDef user fill:#e9f7ec,stroke:#4aa564,color:#111;
+    classDef llm fill:#7db8ff,stroke:#1d4ed8,stroke-width:2px,color:#0b1220;
+    classDef code fill:#b6c2d1,stroke:#475569,stroke-width:2px,color:#0b1220;
+    classDef data fill:#c9b6ff,stroke:#6d28d9,stroke-width:2px,color:#0b1220;
+    classDef stop fill:#ff9d9d,stroke:#b91c1c,stroke-width:2px,color:#0b1220;
+    classDef user fill:#8ee6a8,stroke:#15803d,stroke-width:2px,color:#0b1220;
     class C,R,A,F,D llm;
     class ORCH,API,SEND code;
     class CFG data;
@@ -58,7 +57,7 @@ flowchart TD
     class U,REVIEW,MAIL user;
 ```
 
-Blue boxes are LLM agents, grey boxes are plain code, purple is the claim config data, red are end states where no claim is sent, and green are the employee and the mailbox. Dotted lines to the error node mean any agent that still fails after one retry (a bad tool call or a model failure) stops the claim with a clear error, with no silent fallback. The LLM perceives and decides, and code owns policy and money: tools validate every action, and the email is a fixed template signed in code so only the reviewed draft can be sent.
+Blue boxes are LLM agents, grey boxes are plain code, purple is the claim config data, red are end states where no claim is sent, and green are the employee and the mailbox. The dotted line to the error node means any agent that still fails after one retry (a bad tool call or a model failure) stops the claim with a clear error, with no silent fallback. The LLM perceives and decides, and code owns policy and money: tools validate every action, and the email is a fixed template signed in code so only the reviewed draft can be sent.
 
 **Adding a claim type:** each claim type is one config entry (fields, policy, rate, cap, classifier hint, email wording) plus one form template registered in `lib/form-generators.ts`. The Classifier prompt, tool schemas, Reader, Auditor and email pick it up from the config, so the agents and policy checks need no changes.
 
