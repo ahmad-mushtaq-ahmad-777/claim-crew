@@ -31,7 +31,7 @@ flowchart TD
     end
 
     ORCH --> C
-    C -- "unknown type" --> STOP["Stop: unsupported document"]
+    C -- "unknown / uncertain type" --> STOP["Stop: unsupported document"]
     C --> R
     R --> A
     A -- "request_reread (max 2 retries)" --> R
@@ -42,7 +42,7 @@ flowchart TD
     REVIEW --> SEND["/api/send<br/>verify signature, rate limit"]
     SEND --> MAIL["Gmail SMTP to Accounts"]
 
-    AGENTS -. "still failing after 1 retry" .-> ERR["Error: claim stops with a clear message"]
+    AGENTS -. "still failing after fallbacks / retry" .-> ERR["Error: claim stops with a clear message"]
     CFG -. "drives every agent" .-> AGENTS
 
     classDef llm fill:#7db8ff,stroke:#1d4ed8,stroke-width:2px,color:#0b1220;
@@ -57,7 +57,7 @@ flowchart TD
     class U,REVIEW,MAIL user;
 ```
 
-Blue boxes are LLM agents, grey boxes are plain code, purple is the claim config data, red are end states where no claim is sent, and green are the employee and the mailbox. The dotted line to the error node means any agent that still fails after one retry (a bad tool call or a model failure) stops the claim with a clear error, with no silent fallback. The LLM perceives and decides, and code owns policy and money: tools validate every action, and the email is a fixed template signed in code so only the reviewed draft can be sent.
+Blue boxes are LLM agents, grey boxes are plain code, purple is the claim config data, red are end states where no claim is sent, and green are the employee and the mailbox. The dotted line to the error node means any agent that still fails after trying the backup models (tool-calling agents also retry once on a bad tool call) stops the claim with a clear error, with no silent fallback. The LLM perceives and decides, and code owns policy and money: tools validate every action, and the email is a fixed template signed in code so only the reviewed draft can be sent.
 
 **Adding a claim type:** each claim type is one config entry (fields, policy, rate, cap, classifier hint, email wording) plus one form template registered in `lib/form-generators.ts`. The Classifier prompt, tool schemas, Reader, Auditor and email pick it up from the config, so the agents and policy checks need no changes.
 
@@ -80,7 +80,7 @@ The **orchestrator** (`lib/orchestrator.ts`) is deterministic by design: it runs
 | Internet bill | 100% of the bill | 2000 |
 | Health club | 60% of monthly dues (rounded to 2 decimals) | 4000 on the 60% share |
 
-- Every extracted field is required, and the receipt must be from the current year. Unrecognised documents are rejected by the Classifier.
+- Every extracted field is required, and the receipt must be from the current year. Unrecognised or uncertain documents are rejected by the Classifier.
 - If a field is missing or low-confidence, the Auditor requests a re-read and the claim goes back to the Reader, up to 2 retries. Image retries read a contrast-enhanced copy. On the final pass the Auditor is told no re-reads are left and rejects the claim with its own reason.
 - Over-cap health club claims are still approved. The Auditor adds a note and Accounts applies the cap.
 
@@ -108,7 +108,7 @@ Create `.env.local` for local development and set the same values in Vercel for 
 | `LLM_API_KEY` | API key for that endpoint |
 | `LLM_MODEL` | Primary model (needs vision) |
 | `LLM_FALLBACK_MODELS` | Comma-separated models tried if the primary fails |
-| `MOCK_LLM` | `true` runs the pipeline with canned output and no LLM calls |
+| `MOCK_LLM` | Defaults to `true` if unset: runs the pipeline with canned output and no LLM calls. Set to `false` to use the real LLM |
 | `GMAIL_USER` | Gmail address used to send |
 | `GMAIL_APP_PASSWORD` | Gmail app password |
 | `ACCOUNTS_EMAIL` | Demo mailbox that receives claims |
